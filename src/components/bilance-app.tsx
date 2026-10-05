@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Check } from "lucide-react"
 import Image from "next/image"
 
@@ -14,8 +14,13 @@ import { cn } from "@/lib/utils"
 type View = "bilanca" | "izkaz"
 
 export function BilanceApp() {
-  const [view, setView] = useState<View>("bilanca")
+  const [view, setView] = useState<View>("izkaz")
   const [showZeros, setShowZeros] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("izkaz") === "1") setView("izkaz")
+  }, [])
 
   const current = useMemo(() => rollup(grafam.balance.current), [])
   const previous = useMemo(() => rollup(grafam.balance.previous), [])
@@ -77,10 +82,22 @@ export function BilanceApp() {
 
         <div className="no-print mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="inline-flex rounded-lg border border-border bg-secondary p-1">
-            <Tab active={view === "bilanca"} onClick={() => setView("bilanca")}>
+            <Tab
+              active={view === "bilanca"}
+              onClick={() => {
+                setView("bilanca")
+                history.replaceState(null, "", "/")
+              }}
+            >
               Bilanca stanja
             </Tab>
-            <Tab active={view === "izkaz"} onClick={() => setView("izkaz")}>
+            <Tab
+              active={view === "izkaz"}
+              onClick={() => {
+                setView("izkaz")
+                history.replaceState(null, "", "/?izkaz=1")
+              }}
+            >
               Izkaz poslovnega izida
             </Tab>
           </div>
