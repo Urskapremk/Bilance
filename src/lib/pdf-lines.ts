@@ -13,13 +13,17 @@ function isTextItem(item: unknown): item is TextItem {
 export async function pdfToText(data: Uint8Array): Promise<string> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
   const payload = new Uint8Array(data)
-  const document = await pdfjs.getDocument({ data: payload, disableWorker: true, verbosity: 0 }).promise
+  const document = await pdfjs.getDocument({ data: payload, verbosity: 0 }).promise
   const pages: string[] = []
 
   for (let number = 1; number <= document.numPages; number += 1) {
     const page = await document.getPage(number)
     const content = await page.getTextContent()
-    pages.push(rowsToText(content.items.filter(isTextItem)))
+    const lines: TextItem[] = []
+    for (const item of content.items) {
+      if (isTextItem(item)) lines.push(item)
+    }
+    pages.push(rowsToText(lines))
   }
 
   const text = pages.join("\n")
