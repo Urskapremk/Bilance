@@ -535,7 +535,7 @@ export function BilanceApp() {
                   ? phase === "arhiv"
                     ? "Shranjeno v arhiv. Obrazec je sestavljen iz te bruto bilance."
                     : phase === "osnutek"
-                      ? "Osnutek je sestavljen iz te bruto bilance. V arhiv gre šele, ko potrdite, da je končna."
+                      ? "Bilanca stanja in izkaz poslovnega izida sta sestavljena iz te datoteke. V arhiv gre šele, ko potrdite, da je končna."
                       : "Obrazec je sestavljen iz tega izpisa. Tukaj ostane, da ga lahko primerjate s postavkami."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
