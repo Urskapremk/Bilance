@@ -1,6 +1,6 @@
 # Bilance
 
-Vhod je landing [Hnatura](https://hnatura.app): izbira programa. **Prevzem** pelje na prevzem.hnatura.app. **Bilance** odpre izdelavo presečnih izkazov.
+Vhod je landing [Hnatura](https://hnatura.app). **Bilance** so v razdelku Računovodski servis, med obračunom plač, revizijskimi poročili, priročnikom in oddajo.
 
 Bilanca stanja in izkaz poslovnega izida sta v istem vizualnem jeziku: belo ozadje, mornarsko modra, zlata in serifni naslovi.
 
