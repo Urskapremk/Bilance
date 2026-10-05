@@ -40,5 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# arhiv končnih bilanc
+# arhiv končnih bilanc in seznam strank
 /data/arhiv/
+/data/stranke.json
