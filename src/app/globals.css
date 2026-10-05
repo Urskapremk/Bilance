@@ -103,7 +103,56 @@
 }
 
 @media print {
-  .no-print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .no-print,
+  nextjs-portal,
+  [data-nextjs-toast],
+  [data-nextjs-dialog],
+  [data-next-badge-root] {
     display: none !important;
+  }
+
+  .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  table {
+    min-width: 0 !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  .rounded-xl {
+    break-inside: avoid;
+  }
+
+  .statement-head {
+    background: #222c37 !important;
+    color: #faf8f5 !important;
+  }
+
+  .statement-head th {
+    color: #faf8f5 !important;
+  }
+
+  .statement-band {
+    background: #f2f5f9 !important;
   }
 }

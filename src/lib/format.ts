@@ -10,6 +10,7 @@ export function formatEur(value: number): string {
 const cents = new Intl.NumberFormat("sl-SI", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
+  useGrouping: "always",
 })
 
 export function formatCents(value: number): string {
