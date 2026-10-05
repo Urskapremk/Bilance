@@ -1,6 +1,6 @@
 "use client"
 
-import { Archive, FileDown, FileUp, Printer, UserPlus } from "lucide-react"
+import { Archive, FileDown, FileUp, Printer, Save, UserPlus } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react"
 
@@ -17,7 +17,15 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { formatSavedAt, listArchive, readArchive, saveArchive, type ArchiveMeta } from "@/lib/archive"
+import {
+  formsOf,
+  formatSavedAt,
+  groupArchiveByClient,
+  listArchive,
+  readArchive,
+  saveArchive,
+  type ArchiveMeta,
+} from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
@@ -71,7 +79,7 @@ export function BilanceApp() {
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
-  const [pendingFinal, setPendingFinal] = useState<{ statement: Statement; pdf: ArrayBuffer } | null>(null)
+  const [saveAsk, setSaveAsk] = useState(false)
   const [savingArchive, setSavingArchive] = useState(false)
   const [savedMeta, setSavedMeta] = useState<ArchiveMeta | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -157,7 +165,7 @@ export function BilanceApp() {
     setLinked(true)
     setError(null)
     draftRef.current = null
-    setPendingFinal(null)
+    setSaveAsk(false)
   }
 
   function applyWorkspace(workspace: Workspace) {
@@ -168,8 +176,9 @@ export function BilanceApp() {
     setBlank(false)
     setLinked(true)
     setError(null)
-    draftRef.current = null
-    setPendingFinal(null)
+    draftRef.current =
+      workspace.phase === "osnutek" ? { statement: workspace.statement, pdf: workspace.pdf } : null
+    setSaveAsk(false)
   }
 
   async function refreshClients() {
@@ -219,7 +228,7 @@ export function BilanceApp() {
       setNewClientName("")
       setNewClientFile(null)
       setNewClientError(null)
-      setPendingFinal(draft)
+      setSaveAsk(false)
       showView("bilanca")
       requestAnimationFrame(() => {
         document.querySelector("article.print-sheet, section.print-sheet")?.scrollIntoView({ block: "start" })
@@ -232,7 +241,7 @@ export function BilanceApp() {
       const message = caught instanceof Error ? caught.message : "Bruto bilance ni bilo mogoče prebrati."
       setLinked(false)
       draftRef.current = null
-      setPendingFinal(null)
+      setSaveAsk(false)
       if (company) setNewClientError(message)
       else setError(message)
       return false
@@ -276,7 +285,7 @@ export function BilanceApp() {
     setError(null)
     setPhase("osnutek")
     draftRef.current = null
-    setPendingFinal(null)
+    setSaveAsk(false)
   }
 
   async function submitNewClient(event: FormEvent<HTMLFormElement>) {
@@ -299,10 +308,15 @@ export function BilanceApp() {
     }
   }
 
-  function dismissQuestion() {
+  function askToSave() {
+    if (!draftRef.current || savingRef.current) return
+    setSaveError(null)
+    setSaveAsk(true)
+  }
+
+  function declineSave() {
     if (savingRef.current) return
-    draftRef.current = null
-    setPendingFinal(null)
+    setSaveAsk(false)
     setSaveError(null)
   }
 
@@ -327,7 +341,7 @@ export function BilanceApp() {
       })
       void refreshClients()
       draftRef.current = null
-      setPendingFinal(null)
+      setSaveAsk(false)
       setSavedMeta(meta)
     } catch (caught) {
       setSaveError(caught instanceof Error ? caught.message : "Arhiva ni bilo mogoče shraniti.")
@@ -366,7 +380,7 @@ export function BilanceApp() {
       setBlank(false)
       setPhase("arhiv")
       draftRef.current = null
-      setPendingFinal(null)
+      setSaveAsk(false)
       setSavedMeta(null)
       setArchiveOpen(false)
     } catch (caught) {
@@ -447,6 +461,12 @@ export function BilanceApp() {
         >
           {showZeros ? "Skrij prazne postavke" : "Prikaži celotno shemo AJPES"}
         </button>
+        {phase === "osnutek" && !blank ? (
+          <Button type="button" onClick={askToSave} disabled={savingArchive || busy}>
+            <Save />
+            Shrani
+          </Button>
+        ) : null}
         <Button type="button" variant="outline" onClick={printStatement}>
           <Printer />
           Natisni
@@ -535,7 +555,7 @@ export function BilanceApp() {
                   ? phase === "arhiv"
                     ? "Shranjeno v arhiv. Obrazec je sestavljen iz te bruto bilance."
                     : phase === "osnutek"
-                      ? "Bilanca stanja in izkaz poslovnega izida sta sestavljena iz te datoteke. V arhiv gre šele, ko potrdite, da je končna."
+                      ? "Najprej preglejte bilanco. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
                       : "Obrazec je sestavljen iz tega izpisa. Tukaj ostane, da ga lahko primerjate s postavkami."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
@@ -597,10 +617,11 @@ export function BilanceApp() {
       </div>
 
       <Dialog
-        open={pendingFinal !== null || savedMeta !== null}
+        open={saveAsk || savedMeta !== null}
         onOpenChange={(open) => {
           if (open || savingRef.current) return
           if (savedMeta) setSavedMeta(null)
+          else declineSave()
         }}
       >
         <DialogContent
@@ -609,17 +630,16 @@ export function BilanceApp() {
           onPointerDownOutside={(event) => event.preventDefault()}
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => {
-            if (savingRef.current || pendingFinal) event.preventDefault()
-            if (!savingRef.current && pendingFinal) dismissQuestion()
+            if (savingRef.current) event.preventDefault()
           }}
         >
           {savedMeta ? (
             <>
               <DialogHeader>
-                <DialogTitle className="text-2xl text-navy">Shranjeno v arhiv.</DialogTitle>
+                <DialogTitle className="text-2xl text-navy">Shranjeno.</DialogTitle>
                 <DialogDescription>
-                  {savedMeta.company}, obdobje {savedMeta.period}. Izvorna datoteka {savedMeta.sourceName} je shranjena
-                  zraven obrazca. Odprete jo lahko v arhivu.
+                  Pod {savedMeta.company} je obdobje {savedMeta.period}. Shranjeni so izvorni PDF {savedMeta.sourceName}{" "}
+                  ter {formsOf(savedMeta).join(" in ").toLowerCase()}.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -631,11 +651,10 @@ export function BilanceApp() {
           ) : (
             <>
               <DialogHeader>
-                <DialogTitle className="text-2xl text-navy">Je ta bilanca končna?</DialogTitle>
+                <DialogTitle className="text-2xl text-navy">Ali shrani?</DialogTitle>
                 <DialogDescription>
-                  Obrazec je sestavljen iz nove bruto bilance {pendingFinal?.statement.sourceName}.{" "}
-                  {pendingFinal?.statement.company}, obdobje {pendingFinal?.statement.period}. Končna bilanca se shrani v
-                  arhiv skupaj z izvorno datoteko.
+                  Pod {statement.company} se za obdobje {statement.period} shrani izvorni PDF {pdfName}. Zraven se shranita
+                  bilanca stanja in izkaz poslovnega izida.
                 </DialogDescription>
               </DialogHeader>
               {saveError ? (
@@ -644,11 +663,11 @@ export function BilanceApp() {
                 </p>
               ) : null}
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={dismissQuestion} disabled={savingArchive}>
-                  Še ni končna
+                <Button type="button" variant="outline" onClick={declineSave} disabled={savingArchive}>
+                  Ne shrani
                 </Button>
                 <Button type="button" onClick={(event) => void confirmFinal(event)} disabled={savingArchive}>
-                  {savingArchive ? "Shranjujem…" : "Shrani v arhiv"}
+                  {savingArchive ? "Shranjujem…" : "Shrani"}
                 </Button>
               </DialogFooter>
             </>
@@ -660,7 +679,9 @@ export function BilanceApp() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-2xl text-navy">Arhiv končnih bilanc</DialogTitle>
-            <DialogDescription>Shranjene končne bilance in bruto bilance, iz katerih so sestavljene.</DialogDescription>
+            <DialogDescription>
+              Po strankah. Pri vsakem obdobju sta shranjena izvorni PDF ter bilanca stanja in izkaz poslovnega izida.
+            </DialogDescription>
           </DialogHeader>
           {archiveError ? (
             <p className="text-sm text-destructive" role="alert">
@@ -668,24 +689,30 @@ export function BilanceApp() {
             </p>
           ) : null}
           {archiveItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground">V arhivu še ni končne bilance.</p>
+            <p className="text-sm text-muted-foreground">V arhivu še ni shranjenega obdobja.</p>
           ) : (
-            <ul className="max-h-80 space-y-2 overflow-auto">
-              {archiveItems.map((item) => (
-                <li key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-navy">{item.company}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {item.period} · {item.sourceName}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{formatSavedAt(item.savedAt)}</p>
-                  </div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => void openArchived(item.id)} disabled={busy}>
-                    Odpri
-                  </Button>
-                </li>
+            <div className="max-h-80 space-y-4 overflow-auto">
+              {groupArchiveByClient(archiveItems).map((group) => (
+                <section key={group.company}>
+                  <h3 className="font-heading text-lg font-semibold text-navy">{group.company}</h3>
+                  <ul className="mt-2 space-y-2">
+                    {group.items.map((item) => (
+                      <li key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-navy">{item.period}</p>
+                          <p className="truncate text-xs text-muted-foreground">Bruto bilanca: {item.sourceName}</p>
+                          <p className="truncate text-xs text-muted-foreground">{formsOf(item).join(" · ")}</p>
+                          <p className="text-xs text-muted-foreground">{formatSavedAt(item.savedAt)}</p>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" onClick={() => void openArchived(item.id)} disabled={busy}>
+                          Odpri
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               ))}
-            </ul>
+            </div>
           )}
         </DialogContent>
       </Dialog>

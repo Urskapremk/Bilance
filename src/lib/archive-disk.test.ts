@@ -24,6 +24,7 @@ test("končna bilanca se zapiše na disk in se prebere nazaj", async () => {
   try {
     const listed = await listArchiveFiles()
     assert.ok(listed.some((item) => item.id === meta.id && item.company === "GRAFAM d.o.o."))
+    assert.deepEqual(meta.forms, ["Bilanca stanja", "Izkaz poslovnega izida"])
     const stored = await readArchiveStatement(meta.id)
     assert.equal(stored.balance.current["070"], 975862)
     const storedPdf = await readArchivePdf(meta.id)

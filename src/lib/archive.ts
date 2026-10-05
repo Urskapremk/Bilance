@@ -1,4 +1,7 @@
+import { sameClient } from "@/lib/clients"
 import type { Statement } from "@/lib/trial"
+
+export const PERIOD_FORMS = ["Bilanca stanja", "Izkaz poslovnega izida"] as const
 
 export type ArchiveMeta = {
   id: string
@@ -7,6 +10,21 @@ export type ArchiveMeta = {
   period: string
   currentDate: string
   sourceName: string
+  forms?: string[]
+}
+
+export function formsOf(item: ArchiveMeta): string[] {
+  return item.forms?.length ? item.forms : [...PERIOD_FORMS]
+}
+
+export function groupArchiveByClient(items: ArchiveMeta[]): { company: string; items: ArchiveMeta[] }[] {
+  const groups: { company: string; items: ArchiveMeta[] }[] = []
+  for (const item of items) {
+    const group = groups.find((entry) => sameClient(entry.company, item.company))
+    if (group) group.items.push(item)
+    else groups.push({ company: item.company, items: [item] })
+  }
+  return groups
 }
 
 export function formatSavedAt(iso: string): string {

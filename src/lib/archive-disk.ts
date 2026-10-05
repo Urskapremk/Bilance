@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 
+import { PERIOD_FORMS } from "@/lib/archive"
 import type { Statement } from "@/lib/trial"
 
 export type ArchiveMeta = {
@@ -10,6 +11,7 @@ export type ArchiveMeta = {
   period: string
   currentDate: string
   sourceName: string
+  forms: string[]
 }
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -31,6 +33,7 @@ export async function writeArchive(statement: Statement, pdf: Uint8Array, source
     period: statement.period,
     currentDate: statement.currentDate,
     sourceName: sourceName || statement.sourceName,
+    forms: [...PERIOD_FORMS],
   }
   const dir = entryDir(meta.id)
   await mkdir(dir, { recursive: true })
