@@ -247,7 +247,7 @@ function Tab({
       aria-current={active ? "page" : undefined}
       className={cn(
         "rounded-md px-4 py-2 text-sm font-medium transition-colors",
-        active ? "bg-navy text-navy-foreground" : "text-muted-foreground hover:text-navy",
+        active ? "bg-deep-blue text-navy-foreground" : "text-muted-foreground hover:text-navy",
       )}
     >
       {children}
