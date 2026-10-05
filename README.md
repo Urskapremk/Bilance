@@ -11,6 +11,8 @@ npm install
 npm run dev
 ```
 
+Aplikacija posluša na [http://127.0.0.1:43123](http://127.0.0.1:43123) in na `localhost` (tudi prek IPv6).
+
 Preverjanje seštevkov:
 
 ```bash
