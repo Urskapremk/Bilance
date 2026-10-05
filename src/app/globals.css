@@ -58,7 +58,7 @@
   --foreground: #1d252d;
   --navy: #222c37;
   --navy-foreground: #faf8f5;
-  --deep-blue: #1c528b;
+  --deep-blue: #153a5c;
   --gold: #bca169;
   --card: #ffffff;
   --card-foreground: #1d252d;
@@ -189,7 +189,7 @@
   }
 
   .statement-head {
-    background: #1c528b !important;
+    background: #153a5c !important;
     color: #faf8f5 !important;
   }
 
