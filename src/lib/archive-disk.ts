@@ -1,0 +1,70 @@
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import path from "node:path"
+
+import type { Statement } from "@/lib/trial"
+
+export type ArchiveMeta = {
+  id: string
+  savedAt: string
+  company: string
+  period: string
+  currentDate: string
+  sourceName: string
+}
+
+const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function rootDir() {
+  return path.join(process.cwd(), "data", "arhiv")
+}
+
+function entryDir(id: string) {
+  if (!ID.test(id)) throw new Error("Arhivski zapis ni veljaven.")
+  return path.join(rootDir(), id)
+}
+
+export async function writeArchive(statement: Statement, pdf: Uint8Array, sourceName: string): Promise<ArchiveMeta> {
+  const meta: ArchiveMeta = {
+    id: crypto.randomUUID(),
+    savedAt: new Date().toISOString(),
+    company: statement.company,
+    period: statement.period,
+    currentDate: statement.currentDate,
+    sourceName: sourceName || statement.sourceName,
+  }
+  const dir = entryDir(meta.id)
+  await mkdir(dir, { recursive: true })
+  await writeFile(path.join(dir, "meta.json"), JSON.stringify(meta))
+  await writeFile(path.join(dir, "statement.json"), JSON.stringify({ ...statement, sourceName: meta.sourceName }))
+  await writeFile(path.join(dir, "bruto.pdf"), pdf)
+  return meta
+}
+
+export async function listArchiveFiles(): Promise<ArchiveMeta[]> {
+  let names: string[] = []
+  try {
+    names = await readdir(rootDir())
+  } catch {
+    return []
+  }
+  const metas: ArchiveMeta[] = []
+  for (const name of names) {
+    if (!ID.test(name)) continue
+    try {
+      const raw = await readFile(path.join(rootDir(), name, "meta.json"), "utf8")
+      metas.push(JSON.parse(raw) as ArchiveMeta)
+    } catch {
+      /* nepopoln zapis preskočimo */
+    }
+  }
+  return metas.sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+}
+
+export async function readArchiveStatement(id: string): Promise<Statement> {
+  const raw = await readFile(path.join(entryDir(id), "statement.json"), "utf8")
+  return JSON.parse(raw) as Statement
+}
+
+export async function readArchivePdf(id: string): Promise<Buffer> {
+  return readFile(path.join(entryDir(id), "bruto.pdf"))
+}

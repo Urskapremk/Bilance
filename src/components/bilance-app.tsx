@@ -1,7 +1,7 @@
 "use client"
 
 import { Archive, FileDown, FileUp, Printer } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type MouseEvent } from "react"
 
 import { PdfPreview } from "@/components/pdf-preview"
 import { StatementDocument } from "@/components/statement-document"
@@ -53,11 +53,15 @@ export function BilanceApp() {
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
   const [pendingFinal, setPendingFinal] = useState<{ statement: Statement; pdf: ArrayBuffer } | null>(null)
   const [savingArchive, setSavingArchive] = useState(false)
+  const [savedMeta, setSavedMeta] = useState<ArchiveMeta | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [archiveItems, setArchiveItems] = useState<ArchiveMeta[]>([])
   const [archiveError, setArchiveError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const pdfUrlRef = useRef(pdfUrl)
+  const draftRef = useRef<{ statement: Statement; pdf: ArrayBuffer } | null>(null)
+  const savingRef = useRef(false)
 
   useEffect(() => {
     pdfUrlRef.current = pdfUrl
@@ -106,13 +110,18 @@ export function BilanceApp() {
       if (!response.ok || !data || !data.company) {
         throw new Error(data?.error ?? "Bruto bilance ni bilo mogoče prebrati.")
       }
-      const pdf = await file.arrayBuffer()
+      const pdf = (await file.arrayBuffer()).slice(0)
+      const draft = { statement: data, pdf }
+      draftRef.current = draft
       setStatement(data)
       setLinked(true)
       setPhase("osnutek")
-      setPendingFinal({ statement: data, pdf })
+      setSavedMeta(null)
+      setSaveError(null)
+      setPendingFinal(draft)
     } catch (caught) {
       setLinked(false)
+      draftRef.current = null
       setPendingFinal(null)
       setError(caught instanceof Error ? caught.message : "Bruto bilance ni bilo mogoče prebrati.")
     } finally {
@@ -120,18 +129,33 @@ export function BilanceApp() {
     }
   }
 
-  async function confirmFinal() {
-    if (!pendingFinal) return
+  function dismissQuestion() {
+    if (savingRef.current) return
+    draftRef.current = null
+    setPendingFinal(null)
+    setSaveError(null)
+  }
+
+  async function confirmFinal(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    const draft = draftRef.current
+    if (!draft || savingRef.current) return
+    savingRef.current = true
     setSavingArchive(true)
+    setSaveError(null)
     setError(null)
     try {
-      await saveArchive(pendingFinal.statement, pendingFinal.pdf)
+      const meta = await saveArchive(draft.statement, draft.pdf.slice(0))
       setArchiveItems(await listArchive())
       setPhase("arhiv")
+      draftRef.current = null
       setPendingFinal(null)
+      setSavedMeta(meta)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Arhiva ni bilo mogoče shraniti.")
+      setSaveError(caught instanceof Error ? caught.message : "Arhiva ni bilo mogoče shraniti.")
     } finally {
+      savingRef.current = false
       setSavingArchive(false)
     }
   }
@@ -160,7 +184,9 @@ export function BilanceApp() {
       setStatement(stored.statement)
       setLinked(true)
       setPhase("arhiv")
+      draftRef.current = null
       setPendingFinal(null)
+      setSavedMeta(null)
       setArchiveOpen(false)
     } catch (caught) {
       setArchiveError(caught instanceof Error ? caught.message : "Končne bilance ni bilo mogoče odpreti.")
@@ -269,7 +295,7 @@ export function BilanceApp() {
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {linked
                 ? phase === "arhiv"
-                  ? "Končna bilanca je v arhivu. Obrazec je sestavljen iz te bruto bilance."
+                  ? "Shranjeno v arhiv. Obrazec je sestavljen iz te bruto bilance."
                   : phase === "osnutek"
                     ? "Osnutek je sestavljen iz te bruto bilance. V arhiv gre šele, ko potrdite, da je končna."
                     : "Obrazec je sestavljen iz tega izpisa. Tukaj ostane, da ga lahko primerjate s postavkami."
@@ -306,24 +332,63 @@ export function BilanceApp() {
         </aside>
       </div>
 
-      <Dialog open={pendingFinal !== null} onOpenChange={(open) => { if (!open && !savingArchive) setPendingFinal(null) }}>
-        <DialogContent className="sm:max-w-md" showCloseButton={!savingArchive}>
-          <DialogHeader>
-            <DialogTitle className="text-2xl text-navy">Je ta bilanca končna?</DialogTitle>
-            <DialogDescription>
-              Obrazec je sestavljen iz nove bruto bilance {pendingFinal?.statement.sourceName}.{" "}
-              {pendingFinal?.statement.company}, obdobje {pendingFinal?.statement.period}. Končna bilanca se shrani v
-              arhiv skupaj z izvorno datoteko.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setPendingFinal(null)} disabled={savingArchive}>
-              Še ni končna
-            </Button>
-            <Button type="button" onClick={() => void confirmFinal()} disabled={savingArchive}>
-              {savingArchive ? "Shranjujem…" : "Shrani v arhiv"}
-            </Button>
-          </DialogFooter>
+      <Dialog
+        open={pendingFinal !== null || savedMeta !== null}
+        onOpenChange={(open) => {
+          if (open || savingRef.current) return
+          if (savedMeta) setSavedMeta(null)
+        }}
+      >
+        <DialogContent
+          className="sm:max-w-md"
+          showCloseButton={!savingArchive}
+          onPointerDownOutside={(event) => event.preventDefault()}
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => {
+            if (savingRef.current || pendingFinal) event.preventDefault()
+            if (!savingRef.current && pendingFinal) dismissQuestion()
+          }}
+        >
+          {savedMeta ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl text-navy">Shranjeno v arhiv.</DialogTitle>
+                <DialogDescription>
+                  {savedMeta.company}, obdobje {savedMeta.period}. Izvorna datoteka {savedMeta.sourceName} je shranjena
+                  zraven obrazca. Odprete jo lahko v arhivu.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button type="button" onClick={() => setSavedMeta(null)}>
+                  Zapri
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl text-navy">Je ta bilanca končna?</DialogTitle>
+                <DialogDescription>
+                  Obrazec je sestavljen iz nove bruto bilance {pendingFinal?.statement.sourceName}.{" "}
+                  {pendingFinal?.statement.company}, obdobje {pendingFinal?.statement.period}. Končna bilanca se shrani v
+                  arhiv skupaj z izvorno datoteko.
+                </DialogDescription>
+              </DialogHeader>
+              {saveError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {saveError}
+                </p>
+              ) : null}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={dismissQuestion} disabled={savingArchive}>
+                  Še ni končna
+                </Button>
+                <Button type="button" onClick={(event) => void confirmFinal(event)} disabled={savingArchive}>
+                  {savingArchive ? "Shranjujem…" : "Shrani v arhiv"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
