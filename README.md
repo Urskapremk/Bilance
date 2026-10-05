@@ -4,7 +4,7 @@ Bilanca stanja in izkaz poslovnega izida v vizualnem jeziku [Hnatura](https://hn
 
 Prvi prikaz je **GRAFAM d.o.o.** za obdobje 1. 1. 2026–31. 8. 2026. Obrazec je vedno poleg izvorne bruto bilance. Z **Dodaj PDF** naložite nov izpis bruto bilance (konti in osem stolpcev zneskov); iz njega se sestavita bilanca stanja in izkaz poslovnega izida po poenotenem obrazcu AJPES. Zneski so v evrih, s centi.
 
-**Natisni** odpre sistemsko okno za tisk. **Kreiraj PDF** prenese datoteko istega obrazca: mornarsko modra glava, zlati AOP, serifni naslovi. Zaslon ostane velik. Tisk in PDF sta isti obrazec, le gostejši, na pokončnem A4.
+**Natisni** odpre sistemsko okno za tisk. **Kreiraj PDF** prenese datoteko istega obrazca: mornarsko modra glava, zlati AOP, serifni naslovi. Zaslon, tisk in PDF so isti obrazec na pokončnem A4. Izpis ohrani razmake z zaslona in se razporedi na več strani.
 
 ## Zagon
 
