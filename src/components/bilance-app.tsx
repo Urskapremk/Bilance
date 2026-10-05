@@ -3,6 +3,7 @@
 import { FileDown, FileUp, Printer } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { PdfPreview } from "@/components/pdf-preview"
 import { StatementDocument } from "@/components/statement-document"
 import { Button } from "@/components/ui/button"
 import { grafam, mappingNotes } from "@/lib/grafam"
@@ -216,11 +217,7 @@ export function BilanceApp() {
               </p>
             ) : null}
           </div>
-          <iframe
-            title={`Bruto bilanca ${pdfName}`}
-            src={`${pdfUrl}#toolbar=1&navpanes=0&view=FitH`}
-            className="min-h-[70vh] w-full flex-1 bg-secondary lg:min-h-0"
-          />
+          <PdfPreview url={pdfUrl} title={`Bruto bilanca ${pdfName}`} />
         </aside>
       </div>
     </div>
