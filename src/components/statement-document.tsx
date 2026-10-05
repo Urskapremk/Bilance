@@ -30,7 +30,7 @@ export function StatementDocument({
   const balanced = issues.every((issue) => issue.severity !== "error")
 
   return (
-    <article className="print-sheet">
+    <article className="print-sheet min-w-0">
       <header className="border-b border-border print:border-0">
         <div className="flex justify-center px-6 py-5 print:px-0 print:py-2">
           <Image
@@ -50,8 +50,11 @@ export function StatementDocument({
           Bilance
           <span className="h-px w-8 bg-gold" aria-hidden="true" />
         </p>
-        <h1 className="font-heading text-4xl leading-tight font-semibold text-balance text-navy md:text-5xl print:text-[28px] print:leading-tight">
-          {view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}
+        <h1 className="font-heading max-w-full text-4xl leading-tight font-semibold text-balance break-words text-navy md:text-5xl print:text-[28px] print:leading-tight">
+          <span className="block">{view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}</span>
+          <span className="mt-3 block text-2xl font-medium text-gold md:text-3xl print:mt-1 print:text-[16px]">
+            Presečni izkazi, ocena poslovanja
+          </span>
         </h1>
         <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-muted-foreground md:text-lg print:mt-2 print:text-[12px] print:leading-snug">
           Sestavljeno iz bruto bilance {statement.company}. Shema in oznake AOP so po poenotenem
@@ -100,10 +103,13 @@ export function StatementDocument({
         {toolbar}
 
         <h2 className="font-heading mt-8 text-2xl font-semibold text-navy print:mt-4 print:text-[18px]">
-          {view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}
+          <span className="block">{view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}</span>
+          <span className="mt-1 block text-base font-medium text-gold print:text-[12px]">
+            Presečni izkazi, ocena poslovanja
+          </span>
         </h2>
 
-        <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card print:mt-3">
+        <div className="mt-4 min-w-0 overflow-hidden rounded-xl border border-border bg-card print:mt-3">
           {view === "bilanca" ? (
             <BalanceTable
               company={statement.company}
@@ -202,7 +208,7 @@ function BalanceTable({
   })
 
   return (
-    <div className="overflow-x-auto">
+    <div className="min-w-0 overflow-x-auto">
       <table className="w-full min-w-[720px] border-collapse text-sm print:min-w-0 print:text-[10.5px]">
         <caption className="sr-only">Bilanca stanja {company}</caption>
         <thead>
@@ -249,7 +255,7 @@ function IncomeTable({
   const rows = INCOME_LINES.filter((line) => showZeros || (values[line.aop] ?? 0) !== 0)
 
   return (
-    <div className="overflow-x-auto">
+    <div className="min-w-0 overflow-x-auto">
       <table className="w-full min-w-[640px] border-collapse text-sm print:min-w-0 print:text-[10.5px]">
         <caption className="sr-only">Izkaz poslovnega izida {company}</caption>
         <thead>

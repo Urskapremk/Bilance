@@ -481,9 +481,9 @@ export function BilanceApp() {
 
   return (
     <div className="min-h-svh bg-background">
-      <div className="mx-auto grid max-w-[1440px] items-start gap-6 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,420px)] lg:px-6">
+      <div className="mx-auto grid min-w-0 max-w-[1440px] items-start gap-6 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,420px)] lg:px-6">
         {blank ? (
-          <section className="print-sheet">
+          <section className="print-sheet min-w-0">
             <header className="border-b border-border">
               <div className="flex justify-center px-6 py-5">
                 <Image
@@ -519,7 +519,7 @@ export function BilanceApp() {
 
         <aside
           className={cn(
-            "no-print flex flex-col overflow-hidden rounded-xl border bg-card lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]",
+            "no-print flex min-w-0 flex-col overflow-hidden rounded-xl border bg-card lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]",
             dragOver ? "border-gold" : "border-border",
           )}
           onDragOver={(event) => {
@@ -866,7 +866,7 @@ export function BilanceApp() {
 
 function fileBase(statement: Statement, view: View) {
   const kind = view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"
-  return `${kind} ${statement.company} ${statement.currentDate}`
+  return `${kind}, presečni izkazi, ocena poslovanja ${statement.company} ${statement.currentDate}`
 }
 
 function Tab({
