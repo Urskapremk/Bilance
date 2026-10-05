@@ -3,6 +3,8 @@
 import { ZoomIn, ZoomOut } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { openPdfWindow } from "@/lib/pdf-window"
+
 const MIN_ZOOM = 0.5
 const MAX_ZOOM = 2.5
 const ZOOM_STEP = 0.25
@@ -12,18 +14,29 @@ function clampZoom(value: number) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(stepped.toFixed(2))))
 }
 
-export function PdfPreview({ url, title }: { url: string; title: string }) {
+export function PdfPreview({
+  url,
+  title,
+  variant = "pane",
+}: {
+  url: string
+  title: string
+  variant?: "pane" | "window"
+}) {
   const frameRef = useRef<HTMLDivElement>(null)
   const pagesRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(1)
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
+  const [blocked, setBlocked] = useState(false)
   const [documentVersion, setDocumentVersion] = useState(0)
   const pdfRef = useRef<{ numPages: number; getPage: (n: number) => Promise<PdfPage> } | null>(null)
+  const enlarging = variant === "pane"
 
   useEffect(() => {
     let cancelled = false
     setStatus("loading")
     setZoom(1)
+    setBlocked(false)
 
     async function load() {
       try {
@@ -45,7 +58,7 @@ export function PdfPreview({ url, title }: { url: string; title: string }) {
     return () => {
       cancelled = true
     }
-  }, [url])
+  }, [url, variant])
 
   useEffect(() => {
     const frame = frameRef.current
@@ -105,11 +118,20 @@ export function PdfPreview({ url, title }: { url: string; title: string }) {
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return
       event.preventDefault()
+      if (enlarging) {
+        if (event.deltaY < 0) void enlarge()
+        return
+      }
       setZoom((current) => clampZoom(current + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)))
     }
     frame.addEventListener("wheel", onWheel, { passive: false })
     return () => frame.removeEventListener("wheel", onWheel)
-  }, [])
+  }, [enlarging, title, url])
+
+  async function enlarge() {
+    const opened = await openPdfWindow(url, title)
+    setBlocked(!opened)
+  }
 
   return (
     <div ref={frameRef} className="relative min-h-[70vh] flex-1 overflow-auto bg-deep-blue lg:min-h-0" aria-busy={status === "loading"}>
@@ -118,7 +140,7 @@ export function PdfPreview({ url, title }: { url: string; title: string }) {
           type="button"
           className="inline-flex size-8 items-center justify-center rounded-md border border-white/25 text-navy-foreground transition-colors hover:border-gold hover:text-gold disabled:pointer-events-none disabled:opacity-40"
           aria-label="Pomanjšaj"
-          disabled={zoom <= MIN_ZOOM}
+          disabled={enlarging || zoom <= MIN_ZOOM}
           onClick={() => setZoom((current) => clampZoom(current - ZOOM_STEP))}
         >
           <ZoomOut className="size-4" />
@@ -128,12 +150,20 @@ export function PdfPreview({ url, title }: { url: string; title: string }) {
           type="button"
           className="inline-flex size-8 items-center justify-center rounded-md border border-white/25 text-navy-foreground transition-colors hover:border-gold hover:text-gold disabled:pointer-events-none disabled:opacity-40"
           aria-label="Povečaj"
-          disabled={zoom >= MAX_ZOOM}
-          onClick={() => setZoom((current) => clampZoom(current + ZOOM_STEP))}
+          disabled={!enlarging && zoom >= MAX_ZOOM}
+          onClick={() => {
+            if (enlarging) void enlarge()
+            else setZoom((current) => clampZoom(current + ZOOM_STEP))
+          }}
         >
           <ZoomIn className="size-4" />
         </button>
       </div>
+      {blocked ? (
+        <p className="px-4 py-2 text-sm text-navy-foreground" role="alert">
+          Brskalnik je zaustavil novo okno. Dovolite pojavna okna za to stran in znova pritisnite povečavo.
+        </p>
+      ) : null}
       {status === "loading" ? <p className="px-4 py-3 text-sm text-navy-foreground">Odpiram izpis…</p> : null}
       {status === "error" ? (
         <p className="px-4 py-3 text-sm text-navy-foreground" role="alert">
