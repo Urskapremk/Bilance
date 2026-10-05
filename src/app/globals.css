@@ -106,8 +106,8 @@
 
 @media print {
   @page {
-    size: A4 landscape;
-    margin: 6mm 7mm;
+    size: A4 portrait;
+    margin: 8mm 9mm;
   }
 
   html,
@@ -197,6 +197,7 @@
     color: #faf8f5 !important;
     padding-top: 2px !important;
     padding-bottom: 2px !important;
+    white-space: nowrap;
   }
 
   .statement-band {

@@ -194,8 +194,8 @@ function BalanceTable({
           <tr className="statement-head bg-deep-blue text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[7px] print:tracking-[0.08em]">
             <th className="px-5 py-3 font-medium md:px-7 print:px-2 print:py-0.5">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-[42px] print:px-1 print:py-0.5">AOP</th>
-            <th className="w-40 px-3 py-3 text-right font-medium print:w-[92px] print:px-2 print:py-0.5">{currentDate}</th>
-            <th className="w-40 px-3 py-3 text-right font-medium md:pr-7 print:w-[92px] print:px-2 print:py-0.5 print:pr-2">{previousDate}</th>
+            <th className="w-40 px-3 py-3 text-right font-medium print:w-[78px] print:px-1.5 print:py-0.5">{currentDate}</th>
+            <th className="w-40 px-3 py-3 text-right font-medium md:pr-7 print:w-[78px] print:px-1.5 print:py-0.5 print:pr-1.5">{previousDate}</th>
           </tr>
         </thead>
         <tbody>
@@ -234,7 +234,7 @@ function IncomeTable({
           <tr className="statement-head bg-deep-blue text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[7px] print:tracking-[0.08em]">
             <th className="px-5 py-3 font-medium md:px-7 print:px-2 print:py-0.5">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-[42px] print:px-1 print:py-0.5">AOP</th>
-            <th className="w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[168px] print:px-2 print:py-0.5 print:pr-2">{period}</th>
+            <th className="w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[132px] print:px-1.5 print:py-0.5 print:pr-1.5">{period}</th>
           </tr>
         </thead>
         <tbody>
