@@ -100,6 +100,17 @@ export function BilanceApp() {
     pdfUrlRef.current = pdfUrl
   }, [pdfUrl])
 
+  function showView(next: View) {
+    setView(next)
+    const url = new URL(window.location.href)
+    if (next === "izkaz") url.searchParams.set("izkaz", "1")
+    else url.searchParams.delete("izkaz")
+    const nextUrl = `${url.pathname}${url.search}`
+    if (nextUrl !== `${window.location.pathname}${window.location.search}`) {
+      window.history.pushState({}, "", nextUrl)
+    }
+  }
+
   useEffect(() => {
     const sync = () => {
       const params = new URLSearchParams(window.location.search)
@@ -209,6 +220,10 @@ export function BilanceApp() {
       setNewClientFile(null)
       setNewClientError(null)
       setPendingFinal(draft)
+      showView("bilanca")
+      requestAnimationFrame(() => {
+        document.querySelector("article.print-sheet, section.print-sheet")?.scrollIntoView({ block: "start" })
+      })
       void rememberClientName(named.company)
         .then(() => refreshClients())
         .catch(() => setClients((current) => mergeClients([...current, named.company])))
@@ -416,10 +431,10 @@ export function BilanceApp() {
   const toolbar = (
     <div className="no-print mt-8 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="inline-flex rounded-lg border border-border bg-secondary p-1">
-        <Tab href="/" active={view === "bilanca"}>
+        <Tab active={view === "bilanca"} onSelect={() => showView("bilanca")}>
           Bilanca stanja
         </Tab>
-        <Tab href="/?izkaz=1" active={view === "izkaz"}>
+        <Tab active={view === "izkaz"} onSelect={() => showView("izkaz")}>
           Izkaz poslovnega izida
         </Tab>
       </div>
@@ -828,24 +843,25 @@ function fileBase(statement: Statement, view: View) {
 }
 
 function Tab({
-  href,
   active,
+  onSelect,
   children,
 }: {
-  href: string
   active: boolean
+  onSelect: () => void
   children: React.ReactNode
 }) {
   return (
-    <a
-      href={href}
+    <button
+      type="button"
       aria-current={active ? "page" : undefined}
+      onClick={onSelect}
       className={cn(
         "rounded-md px-4 py-2 text-sm font-medium transition-colors",
         active ? "bg-deep-blue text-navy-foreground" : "text-muted-foreground hover:text-navy",
       )}
     >
       {children}
-    </a>
+    </button>
   )
 }
