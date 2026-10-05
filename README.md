@@ -1,6 +1,8 @@
 # Bilance
 
-Bilanca stanja in izkaz poslovnega izida v vizualnem jeziku [Hnatura](https://hnatura.app): belo ozadje, mornarsko modra, zlata in serifni naslovi.
+Vhod je landing [Hnatura](https://hnatura.app): izbira programa. **Prevzem** pelje na prevzem.hnatura.app. **Bilance** odpre izdelavo presečnih izkazov.
+
+Bilanca stanja in izkaz poslovnega izida sta v istem vizualnem jeziku: belo ozadje, mornarsko modra, zlata in serifni naslovi.
 
 Prvi prikaz je **GRAFAM d.o.o.** za obdobje 1. 1. 2026–31. 8. 2026. Stolpec 31. 12. 2025 je javna objava letnega poročila AJPES za leto 2025 (matična 6531482000). Črtica pomeni, da objava te postavke ne razčleni. Obrazec je vedno poleg izvorne bruto bilance. Z **Dodaj PDF** naložite nov izpis bruto bilance (konti in osem stolpcev zneskov) za izbrano stranko. **Nova stranka** je na istem mestu: vpišete naziv in dodate njeno bruto bilanco, iz katere se sestavi nova bilanca. Ta izpis postane osnova za bilanco stanja in izkaz poslovnega izida po poenotenem obrazcu AJPES. Najprej pregledate bilanco. Ko je v redu, **Shrani** vpraša, ali se obdobje zapiše. Shrani se izvorni PDF ter bilanca stanja in izkaz poslovnega izida, pod stranko, za katero je bilanca. Zneski so v evrih, s centi.
 

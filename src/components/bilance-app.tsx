@@ -1,6 +1,6 @@
 "use client"
 
-import { Archive, FileDown, FileUp, Printer, Save, UserPlus } from "lucide-react"
+import { Archive, ArrowLeft, FileDown, FileUp, Printer, Save, UserPlus } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react"
 
@@ -481,6 +481,17 @@ export function BilanceApp() {
 
   return (
     <div className="min-h-svh bg-background">
+      <div className="no-print border-b border-border">
+        <div className="mx-auto flex max-w-[1440px] px-4 py-3 lg:px-6">
+          <a
+            href="/"
+            className="inline-flex items-center gap-2 text-sm font-medium text-navy underline-offset-4 hover:text-gold hover:underline"
+          >
+            <ArrowLeft className="size-4" />
+            Programi
+          </a>
+        </div>
+      </div>
       <div className="mx-auto grid min-w-0 max-w-[1440px] items-start gap-6 px-4 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,420px)] lg:px-6">
         {blank ? (
           <section className="print-sheet min-w-0">

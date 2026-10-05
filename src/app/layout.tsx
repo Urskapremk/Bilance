@@ -14,9 +14,9 @@ const cormorant = Cormorant_Garamond({
 })
 
 export const metadata: Metadata = {
-  title: "Bilance · Hnatura",
+  title: "Hnatura d.o.o. — Računovodski servis",
   description:
-    "Bilanca stanja in izkaz poslovnega izida po shemi AJPES, v vizualnem jeziku Hnatura.",
+    "Digitalno okolje računovodskega servisa Hnatura. Prevzem dokumentov in izdelava presečnih izkazov.",
 }
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
