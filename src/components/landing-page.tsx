@@ -77,12 +77,13 @@ export function LandingPage() {
                     label="revizija.hnatura.app"
                   />
                   <ProgramCard
-                    href="/bilance"
+                    href="https://bilance.hnatura.app"
+                    external
                     tone="navy"
                     icon={<Scale className="size-6" />}
                     title="Bilance"
                     text="Presečni izkazi in ocena poslovanja. Iz bruto bilance se sestavita bilanca stanja in izkaz poslovnega izida."
-                    label="Odpri program"
+                    label="bilance.hnatura.app"
                   />
                   <ProgramCard
                     href="https://prirocnik.hnatura.app"
