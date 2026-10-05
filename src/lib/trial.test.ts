@@ -38,6 +38,35 @@ test("kratek izpis se razporedi na terjatve in obveznosti do dobaviteljev", () =
   assert.equal(current["001"], current["055"])
 })
 
+test("analitika brez trištevilčnega konta gre v isto postavko bilance", () => {
+  const statement = buildStatement(
+    [
+      "SEVER d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.08.2026",
+      "12 Terjatve do kupcev",
+      "0,00 0,00 0,00 0,00 0,00 0,00 0,00 0,00",
+      "1200 Kupci v državi",
+      "50.000,00 0,00 30.000,00 0,00 80.000,00 0,00 80.000,00 0,00",
+      "22 Dobavitelji",
+      "0,00 0,00 0,00 0,00 0,00 0,00 0,00 0,00",
+      "2200 Dobavitelji v državi",
+      "0,00 50.000,00 0,00 0,00 0,00 50.000,00 0,00 50.000,00",
+      "7600 Prodaja storitev",
+      "0,00 0,00 0,00 30.000,00 0,00 30.000,00 0,00 30.000,00",
+    ].join("\n"),
+    "sever.pdf",
+  )
+
+  assert.equal(statement.balance.current["050"], 8_000_000)
+  assert.equal(statement.balance.previous["050"], 5_000_000)
+  assert.equal(statement.balance.current["093"], 5_000_000)
+  assert.equal(statement.balance.current["070"], 3_000_000)
+  assert.equal(statement.income["112"], 3_000_000)
+  assert.equal(statement.warnings.length, 0)
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"], current["055"])
+})
+
 test("bruto bilanca Grafama se razporedi na obrazec AJPES", async () => {
   const bytes = await readFile(new URL("../../public/sources/Grafam_BB_31.08.2026.pdf", import.meta.url))
   const statement = await statementFromPdf(bytes, "Grafam_BB_31.08.2026.pdf")

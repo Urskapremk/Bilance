@@ -79,22 +79,27 @@ function column(accounts: Account[], field: "open" | "close") {
   const leaves: Record<string, number> = {}
   const warnings: string[] = []
   let retained = 0
+  const relevant = accounts.filter((account) => "01239".includes(account.code[0] ?? ""))
 
-  for (const account of accounts) {
-    if (account.code.length !== 3) continue
+  for (const account of balancePostings(relevant, field)) {
     const netDebit = net(account, field)
-    if (account.code.startsWith("93")) {
-      retained -= netDebit
-      continue
-    }
-    const target = balanceTarget(account.code)
-    if (!target) {
-      if (netDebit !== 0 && "01239".includes(account.code[0] ?? "")) {
+    const root = account.code.slice(0, 3)
+    if (root.length < 3) {
+      if (netDebit !== 0) {
         warnings.push(`Konto ${account.code} ${account.name} ni razporejen v bilanco stanja.`)
       }
       continue
     }
-    if (target.side === "liability" && netDebit > 0 && account.code.startsWith("2")) {
+    if (root.startsWith("93")) {
+      retained -= netDebit
+      continue
+    }
+    const target = balanceTarget(root)
+    if (!target) {
+      if (netDebit !== 0) warnings.push(`Konto ${account.code} ${account.name} ni razporejen v bilanco stanja.`)
+      continue
+    }
+    if (target.side === "liability" && netDebit > 0 && root.startsWith("2")) {
       add(leaves, "051", netDebit)
       continue
     }
@@ -112,17 +117,43 @@ function column(accounts: Account[], field: "open" | "close") {
   return { leaves, warnings }
 }
 
+function balancePostings(accounts: Account[], field: "open" | "close"): Account[] {
+  const roots = accounts.filter(
+    (account) =>
+      !accounts.some((other) => account.code.startsWith(other.code) && other.code.length < account.code.length),
+  )
+  return roots.flatMap((account) => partitionBalance(account, accounts, field))
+}
+
+function partitionBalance(account: Account, all: Account[], field: "open" | "close"): Account[] {
+  const deeper = all.filter((other) => other.code.startsWith(account.code) && other.code.length > account.code.length)
+  const immediate = deeper.filter(
+    (child) =>
+      !deeper.some(
+        (mid) =>
+          child.code.startsWith(mid.code) && mid.code.length > account.code.length && mid.code.length < child.code.length,
+      ),
+  )
+  if (!immediate.length) return [account]
+  const parent = net(account, field)
+  const children = immediate.reduce((sum, child) => sum + net(child, field), 0)
+  if (parent === 0 && children !== 0) return immediate.flatMap((child) => partitionBalance(child, all, field))
+  if (children !== parent) return [account]
+  return immediate.flatMap((child) => partitionBalance(child, all, field))
+}
+
 function incomeLeaves(accounts: Account[]) {
   const leaves: Record<string, number> = {}
   const warnings: string[] = []
-  const roots = accounts.filter((account) => {
-    if (!account.code.startsWith("4") && !account.code.startsWith("7")) return false
-    if (account.code.length === 3) return true
-    return (
-      account.code.length === 2 &&
-      !accounts.some((other) => other.code.startsWith(account.code) && other.code.length === 3)
-    )
-  })
+  const incomeAccounts = accounts.filter(
+    (account) => account.code.startsWith("4") || account.code.startsWith("7"),
+  )
+  const roots = incomeAccounts.filter(
+    (account) =>
+      !incomeAccounts.some(
+        (other) => account.code.startsWith(other.code) && other.code.length < account.code.length,
+      ),
+  )
 
   for (const account of roots) {
     for (const part of partition(account, accounts)) {
