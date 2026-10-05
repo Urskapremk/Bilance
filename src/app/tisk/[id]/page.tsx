@@ -15,7 +15,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   if (!job) notFound()
 
   return (
-    <main className="mx-auto max-w-5xl bg-background">
+    <main className="mx-auto max-w-5xl bg-background print:max-w-none">
       <StatementDocument statement={job.statement} view={job.view} showZeros={job.showZeros} />
     </main>
   )

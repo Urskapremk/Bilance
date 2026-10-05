@@ -105,12 +105,14 @@
 @media print {
   @page {
     size: A4 landscape;
-    margin: 10mm;
+    margin: 6mm 7mm;
   }
 
   html,
   body {
     background: #ffffff !important;
+    font-size: 8px;
+    line-height: 1.2;
   }
 
   * {
@@ -126,21 +128,62 @@
     display: none !important;
   }
 
-  .overflow-x-auto {
-    overflow: visible !important;
+  .print-sheet {
+    max-width: none !important;
   }
 
-  table {
-    min-width: 0 !important;
+  .print-sheet,
+  .print-sheet * {
+    overflow: visible !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
   }
 
   thead {
-    display: table-header-group;
+    display: table-header-group !important;
+  }
+
+  .print-sheet table {
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 7.5px;
+    line-height: 1.15;
+    table-layout: fixed;
+  }
+
+  .print-sheet th,
+  .print-sheet td {
+    padding-top: 0.5px !important;
+    padding-bottom: 0.5px !important;
+    line-height: 1.15 !important;
+  }
+
+  .print-sheet tbody th {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   tr,
-  .rounded-xl {
+  thead,
+  tbody {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  tr {
     break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .rounded-xl,
+  .rounded-md,
+  article,
+  main {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
   }
 
   .statement-head {
@@ -150,6 +193,8 @@
 
   .statement-head th {
     color: #faf8f5 !important;
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
   }
 
   .statement-band {

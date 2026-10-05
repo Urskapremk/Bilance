@@ -1,5 +1,5 @@
 import Image from "next/image"
-import type { ReactNode } from "react"
+import type { CSSProperties, ReactNode } from "react"
 
 import { rollup, reviewColumn } from "@/lib/compute"
 import { formatCents } from "@/lib/format"
@@ -29,48 +29,48 @@ export function StatementDocument({
 
   return (
     <article className="print-sheet">
-      <header className="border-b border-border">
-        <div className="flex justify-center px-6 py-5">
+      <header className="border-b border-border print:border-0">
+        <div className="flex justify-center px-6 py-5 print:px-0 print:py-0">
           <Image
             src="/images/hnatura-logo.png"
             alt="Hnatura d.o.o. — Računovodski servis"
             width={340}
             height={100}
             priority
-            className="h-auto w-[200px] md:w-[240px]"
+            className="h-auto w-[200px] md:w-[240px] print:w-[84px]"
           />
         </div>
       </header>
 
-      <div className="px-6 pt-10 pb-6 text-center md:pt-14">
-        <p className="mb-4 flex items-center justify-center gap-3 text-xs font-medium tracking-[0.25em] text-gold uppercase">
-          <span className="h-px w-8 bg-gold" aria-hidden="true" />
+      <div className="px-6 pt-10 pb-6 text-center md:pt-14 print:px-0 print:pt-1 print:pb-1">
+        <p className="mb-4 flex items-center justify-center gap-3 text-xs font-medium tracking-[0.25em] text-gold uppercase print:mb-0.5 print:gap-2 print:text-[8px] print:tracking-[0.18em]">
+          <span className="h-px w-8 bg-gold print:w-4" aria-hidden="true" />
           Bilance
-          <span className="h-px w-8 bg-gold" aria-hidden="true" />
+          <span className="h-px w-8 bg-gold print:w-4" aria-hidden="true" />
         </p>
-        <h1 className="font-heading text-4xl leading-tight font-semibold text-balance text-navy md:text-5xl">
+        <h1 className="font-heading text-4xl leading-tight font-semibold text-balance text-navy md:text-5xl print:text-[15px] print:leading-none">
           {view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}
         </h1>
-        <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-muted-foreground md:text-lg">
+        <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-muted-foreground md:text-lg print:hidden">
           Sestavljeno iz bruto bilance {statement.company}. Shema in oznake AOP so po poenotenem
           obrazcu AJPES za gospodarske družbe.
         </p>
       </div>
 
-      <div className={cn("px-6 pb-8", busy && "opacity-60")}>
-        <div className="rounded-xl border border-border bg-card p-6 md:p-8">
-          <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+      <div className={cn("px-6 pb-8 print:px-0 print:pb-0", busy && "opacity-60")}>
+        <div className="rounded-xl border border-border bg-card p-6 md:p-8 print:rounded-md print:p-2">
+          <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between print:flex-row print:items-end print:justify-between print:gap-3">
             <div>
-              <p className="text-xs font-medium tracking-[0.2em] text-gold uppercase">Družba</p>
-              <h2 className="font-heading mt-1 text-3xl font-semibold text-navy">{statement.company}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              <p className="text-xs font-medium tracking-[0.2em] text-gold uppercase print:text-[7px] print:tracking-[0.14em]">Družba</p>
+              <h2 className="font-heading mt-1 text-3xl font-semibold text-navy print:mt-0 print:text-[13px] print:leading-none">{statement.company}</h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground print:mt-0.5 print:text-[8px] print:leading-none">
                 Obdobje {statement.period}. Stanje na dan {statement.currentDate}, primerjava z{" "}
                 {statement.previousDate}. Zneski v evrih.
               </p>
             </div>
             <p
               className={cn(
-                "inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-medium",
+                "inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-medium print:px-2 print:py-0 print:text-[8px]",
                 balanced ? "border-gold/50 bg-accent text-navy" : "border-destructive/40 bg-destructive/10 text-destructive",
               )}
             >
@@ -80,7 +80,7 @@ export function StatementDocument({
             </p>
           </div>
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:grid-cols-3 print:mt-1.5 print:gap-1.5">
             <Metric label="Sredstva" hint={statement.currentDate} value={current["001"] ?? 0} />
             <Metric label="Obveznosti do virov" hint={statement.currentDate} value={current["055"] ?? 0} />
             <Metric
@@ -94,11 +94,11 @@ export function StatementDocument({
 
         {toolbar}
 
-        <h2 className="font-heading mt-8 text-2xl font-semibold text-navy">
+        <h2 className="font-heading mt-8 text-2xl font-semibold text-navy print:hidden">
           {view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}
         </h2>
 
-        <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+        <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card print:mt-1.5 print:rounded-md">
           {view === "bilanca" ? (
             <BalanceTable
               company={statement.company}
@@ -137,7 +137,7 @@ export function StatementDocument({
           </ul>
         </details>
 
-        <footer className="mt-8 border-t border-border pt-6 text-center text-sm text-muted-foreground">
+        <footer className="mt-8 border-t border-border pt-6 text-center text-sm text-muted-foreground print:mt-1 print:pt-1 print:text-[8px]">
           <p>Hnatura d.o.o. — Računovodski servis</p>
           <p className="mt-1 text-xs">Bilance · obrazec po shemi AJPES · {statement.sourceName}</p>
         </footer>
@@ -158,10 +158,10 @@ function Metric({
   accent?: boolean
 }) {
   return (
-    <div className={cn("rounded-xl border px-5 py-4", accent ? "border-gold/50 bg-accent" : "border-border bg-secondary")}>
-      <p className="text-xs font-medium tracking-[0.16em] text-gold uppercase">{label}</p>
-      <p className="font-heading mt-2 text-3xl font-semibold text-navy tabular-nums">{formatCents(value)} €</p>
-      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+    <div className={cn("rounded-xl border px-5 py-4 print:rounded-md print:px-2 print:py-1", accent ? "border-gold/50 bg-accent" : "border-border bg-secondary")}>
+      <p className="text-xs font-medium tracking-[0.16em] text-gold uppercase print:text-[7px] print:tracking-[0.1em]">{label}</p>
+      <p className="font-heading mt-2 text-3xl font-semibold text-navy tabular-nums print:mt-0 print:text-[11px] print:leading-none">{formatCents(value)} €</p>
+      <p className="mt-1 text-xs text-muted-foreground print:mt-0 print:text-[7px]">{hint}</p>
     </div>
   )
 }
@@ -188,14 +188,14 @@ function BalanceTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] border-collapse text-sm">
+      <table className="w-full min-w-[720px] border-collapse text-sm print:min-w-0 print:text-[7.5px]">
         <caption className="sr-only">Bilanca stanja {company}</caption>
         <thead>
-          <tr className="statement-head bg-navy text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase">
-            <th className="px-5 py-3 font-medium md:px-7">Postavka</th>
-            <th className="w-20 px-3 py-3 text-center font-medium">AOP</th>
-            <th className="w-40 px-3 py-3 text-right font-medium">{currentDate}</th>
-            <th className="w-40 px-3 py-3 text-right font-medium md:pr-7">{previousDate}</th>
+          <tr className="statement-head bg-navy text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[7px] print:tracking-[0.08em]">
+            <th className="px-5 py-3 font-medium md:px-7 print:px-2 print:py-0.5">Postavka</th>
+            <th className="w-20 px-3 py-3 text-center font-medium print:w-[42px] print:px-1 print:py-0.5">AOP</th>
+            <th className="w-40 px-3 py-3 text-right font-medium print:w-[92px] print:px-2 print:py-0.5">{currentDate}</th>
+            <th className="w-40 px-3 py-3 text-right font-medium md:pr-7 print:w-[92px] print:px-2 print:py-0.5 print:pr-2">{previousDate}</th>
           </tr>
         </thead>
         <tbody>
@@ -228,13 +228,13 @@ function IncomeTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] border-collapse text-sm">
+      <table className="w-full min-w-[640px] border-collapse text-sm print:min-w-0 print:text-[7.5px]">
         <caption className="sr-only">Izkaz poslovnega izida {company}</caption>
         <thead>
-          <tr className="statement-head bg-navy text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase">
-            <th className="px-5 py-3 font-medium md:px-7">Postavka</th>
-            <th className="w-20 px-3 py-3 text-center font-medium">AOP</th>
-            <th className="w-44 px-3 py-3 text-right font-medium md:pr-7">{period}</th>
+          <tr className="statement-head bg-navy text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[7px] print:tracking-[0.08em]">
+            <th className="px-5 py-3 font-medium md:px-7 print:px-2 print:py-0.5">Postavka</th>
+            <th className="w-20 px-3 py-3 text-center font-medium print:w-[42px] print:px-1 print:py-0.5">AOP</th>
+            <th className="w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[168px] print:px-2 print:py-0.5 print:pr-2">{period}</th>
           </tr>
         </thead>
         <tbody>
@@ -262,22 +262,22 @@ function StatementRow({
       <th
         scope="row"
         className={cn(
-          "px-5 py-2.5 text-left font-normal text-navy md:px-7",
-          band && "font-heading text-lg font-semibold",
+          "px-5 py-2.5 pl-[calc(var(--indent)*0.9rem+1.25rem)] text-left font-normal text-navy md:px-7 print:py-0 print:pr-1 print:pl-[calc(var(--indent)*0.22rem+0.3rem)] print:text-[7.5px]",
+          band && "font-heading text-lg font-semibold print:text-[8px]",
           line.depth === 1 && "font-medium",
         )}
-        style={{ paddingLeft: `${line.depth * 0.9 + 1.25}rem` }}
+        style={{ "--indent": line.depth } as CSSProperties}
       >
         {line.label}
       </th>
-      <td className="px-3 py-2.5 text-center font-mono text-xs text-gold tabular-nums">{line.aop}</td>
-      <td className={cn("px-3 py-2.5 text-right tabular-nums", band && "font-medium text-navy")}>
+      <td className="px-3 py-2.5 text-center font-mono text-xs text-gold tabular-nums print:px-1 print:py-0 print:text-[7px]">{line.aop}</td>
+      <td className={cn("px-3 py-2.5 text-right tabular-nums print:px-1.5 print:py-0", band && "font-medium text-navy")}>
         {formatCents(primary)}
       </td>
       {secondary !== undefined ? (
         <td
           className={cn(
-            "px-3 py-2.5 text-right text-muted-foreground tabular-nums md:pr-7",
+            "px-3 py-2.5 text-right text-muted-foreground tabular-nums md:pr-7 print:px-1.5 print:py-0 print:pr-1.5",
             band && "font-medium text-navy",
           )}
         >
