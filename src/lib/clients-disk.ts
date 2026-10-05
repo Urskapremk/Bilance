@@ -1,10 +1,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 
 import { normalizeClientName, sameClient, SAMPLE_CLIENT } from "@/lib/clients"
 
 function filePath() {
-  return path.join(process.cwd(), "data", "stranke.json")
+  const base = process.env.VERCEL ? path.join(os.tmpdir(), "bilance-data") : path.join(process.cwd(), "data")
+  return path.join(base, "stranke.json")
 }
 
 export async function readStoredClients(): Promise<string[]> {

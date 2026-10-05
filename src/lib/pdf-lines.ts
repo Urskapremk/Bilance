@@ -12,6 +12,8 @@ function isTextItem(item: unknown): item is TextItem {
 
 export async function pdfToText(data: Uint8Array): Promise<string> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
+  const worker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs")
+  ;(globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = worker
   const payload = new Uint8Array(data)
   const document = await pdfjs.getDocument({ data: payload, verbosity: 0 }).promise
   const pages: string[] = []

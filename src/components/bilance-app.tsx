@@ -484,7 +484,7 @@ export function BilanceApp() {
       <div className="no-print border-b border-border">
         <div className="mx-auto flex max-w-[1440px] px-4 py-3 lg:px-6">
           <a
-            href="/"
+            href="https://hnatura.app"
             className="inline-flex items-center gap-2 text-sm font-medium text-navy underline-offset-4 hover:text-gold hover:underline"
           >
             <ArrowLeft className="size-4" />

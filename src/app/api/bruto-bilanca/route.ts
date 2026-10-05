@@ -9,9 +9,14 @@ export const runtime = "nodejs"
 const DEFAULT_NAME = "Grafam_BB_31.08.2026.pdf"
 
 export async function GET() {
-  const bytes = await readFile(path.join(process.cwd(), "public", "sources", DEFAULT_NAME))
-  const statement = await statementFromPdf(bytes, DEFAULT_NAME)
-  return Response.json(statement)
+  try {
+    const bytes = await readFile(path.join(process.cwd(), "public", "sources", DEFAULT_NAME))
+    const statement = await statementFromPdf(bytes, DEFAULT_NAME)
+    return Response.json(statement)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Bruto bilance ni bilo mogoče prebrati."
+    return Response.json({ error: message }, { status: 500 })
+  }
 }
 
 export async function POST(request: Request) {

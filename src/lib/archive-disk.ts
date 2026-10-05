@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 
 import { PERIOD_FORMS } from "@/lib/archive"
@@ -17,7 +18,8 @@ export type ArchiveMeta = {
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function rootDir() {
-  return path.join(process.cwd(), "data", "arhiv")
+  const base = process.env.VERCEL ? path.join(os.tmpdir(), "bilance-data") : path.join(process.cwd(), "data")
+  return path.join(base, "arhiv")
 }
 
 function entryDir(id: string) {

@@ -1,13 +1,13 @@
 import type { Metadata } from "next"
 
-import { LandingPage } from "@/components/landing-page"
+import { BilanceApp } from "@/components/bilance-app"
 
 export const metadata: Metadata = {
-  title: "Hnatura d.o.o. — Računovodski servis",
+  title: "Bilance · Hnatura",
   description:
-    "Digitalno okolje računovodskega servisa Hnatura. Prevzem dokumentov in izdelava presečnih izkazov.",
+    "Presečni izkazi in ocena poslovanja. Bilanca stanja in izkaz poslovnega izida iz bruto bilance.",
 }
 
 export default function Page() {
-  return <LandingPage />
+  return <BilanceApp />
 }
