@@ -14,12 +14,17 @@ import { cn } from "@/lib/utils"
 type View = "bilanca" | "izkaz"
 
 export function BilanceApp() {
-  const [view, setView] = useState<View>("izkaz")
+  const [view, setView] = useState<View>("bilanca")
   const [showZeros, setShowZeros] = useState(false)
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get("izkaz") === "1") setView("izkaz")
+    const sync = () => {
+      const params = new URLSearchParams(window.location.search)
+      setView(params.get("izkaz") === "1" ? "izkaz" : "bilanca")
+    }
+    sync()
+    window.addEventListener("popstate", sync)
+    return () => window.removeEventListener("popstate", sync)
   }, [])
 
   const current = useMemo(() => rollup(grafam.balance.current), [])
@@ -82,22 +87,10 @@ export function BilanceApp() {
 
         <div className="no-print mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="inline-flex rounded-lg border border-border bg-secondary p-1">
-            <Tab
-              active={view === "bilanca"}
-              onClick={() => {
-                setView("bilanca")
-                history.replaceState(null, "", "/")
-              }}
-            >
+            <Tab href="/" active={view === "bilanca"}>
               Bilanca stanja
             </Tab>
-            <Tab
-              active={view === "izkaz"}
-              onClick={() => {
-                setView("izkaz")
-                history.replaceState(null, "", "/?izkaz=1")
-              }}
-            >
+            <Tab href="/?izkaz=1" active={view === "izkaz"}>
               Izkaz poslovnega izida
             </Tab>
           </div>
@@ -162,25 +155,25 @@ function Metric({
 }
 
 function Tab({
+  href,
   active,
-  onClick,
   children,
 }: {
+  href: string
   active: boolean
-  onClick: () => void
   children: React.ReactNode
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <a
+      href={href}
+      aria-current={active ? "page" : undefined}
       className={cn(
         "rounded-md px-4 py-2 text-sm font-medium transition-colors",
         active ? "bg-navy text-navy-foreground" : "text-muted-foreground hover:text-navy",
       )}
     >
       {children}
-    </button>
+    </a>
   )
 }
 
