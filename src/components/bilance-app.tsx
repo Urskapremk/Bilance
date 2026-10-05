@@ -1,11 +1,20 @@
 "use client"
 
-import { FileDown, FileUp, Printer } from "lucide-react"
+import { Archive, FileDown, FileUp, Printer } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { PdfPreview } from "@/components/pdf-preview"
 import { StatementDocument } from "@/components/statement-document"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { formatSavedAt, listArchive, readArchive, saveArchive, type ArchiveMeta } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
 import { grafam, mappingNotes } from "@/lib/grafam"
 import type { Statement } from "@/lib/trial"
@@ -41,6 +50,12 @@ export function BilanceApp() {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
+  const [pendingFinal, setPendingFinal] = useState<{ statement: Statement; pdf: ArrayBuffer } | null>(null)
+  const [savingArchive, setSavingArchive] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const [archiveItems, setArchiveItems] = useState<ArchiveMeta[]>([])
+  const [archiveError, setArchiveError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const pdfUrlRef = useRef(pdfUrl)
 
@@ -64,6 +79,12 @@ export function BilanceApp() {
     }
   }, [])
 
+  useEffect(() => {
+    void listArchive()
+      .then(setArchiveItems)
+      .catch(() => setArchiveItems([]))
+  }, [])
+
   async function loadFile(file: File) {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       setError("Dodajte datoteko PDF.")
@@ -85,11 +106,64 @@ export function BilanceApp() {
       if (!response.ok || !data || !data.company) {
         throw new Error(data?.error ?? "Bruto bilance ni bilo mogoče prebrati.")
       }
+      const pdf = await file.arrayBuffer()
       setStatement(data)
       setLinked(true)
+      setPhase("osnutek")
+      setPendingFinal({ statement: data, pdf })
     } catch (caught) {
       setLinked(false)
+      setPendingFinal(null)
       setError(caught instanceof Error ? caught.message : "Bruto bilance ni bilo mogoče prebrati.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmFinal() {
+    if (!pendingFinal) return
+    setSavingArchive(true)
+    setError(null)
+    try {
+      await saveArchive(pendingFinal.statement, pendingFinal.pdf)
+      setArchiveItems(await listArchive())
+      setPhase("arhiv")
+      setPendingFinal(null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Arhiva ni bilo mogoče shraniti.")
+    } finally {
+      setSavingArchive(false)
+    }
+  }
+
+  async function openArchive() {
+    setArchiveError(null)
+    setArchiveOpen(true)
+    try {
+      setArchiveItems(await listArchive())
+    } catch (caught) {
+      setArchiveError(caught instanceof Error ? caught.message : "Arhiva ni bilo mogoče odpreti.")
+    }
+  }
+
+  async function openArchived(id: string) {
+    setArchiveError(null)
+    setBusy(true)
+    try {
+      const stored = await readArchive(id)
+      const nextUrl = URL.createObjectURL(new Blob([stored.pdf], { type: "application/pdf" }))
+      setPdfUrl((current) => {
+        if (current.startsWith("blob:")) URL.revokeObjectURL(current)
+        return nextUrl
+      })
+      setPdfName(stored.sourceName)
+      setStatement(stored.statement)
+      setLinked(true)
+      setPhase("arhiv")
+      setPendingFinal(null)
+      setArchiveOpen(false)
+    } catch (caught) {
+      setArchiveError(caught instanceof Error ? caught.message : "Končne bilance ni bilo mogoče odpreti.")
     } finally {
       setBusy(false)
     }
@@ -194,7 +268,11 @@ export function BilanceApp() {
             </p>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {linked
-                ? "Obrazec je sestavljen iz tega izpisa. Tukaj ostane, da ga lahko primerjate s postavkami."
+                ? phase === "arhiv"
+                  ? "Končna bilanca je v arhivu. Obrazec je sestavljen iz te bruto bilance."
+                  : phase === "osnutek"
+                    ? "Osnutek je sestavljen iz te bruto bilance. V arhiv gre šele, ko potrdite, da je končna."
+                    : "Obrazec je sestavljen iz tega izpisa. Tukaj ostane, da ga lahko primerjate s postavkami."
                 : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
             <input
@@ -208,10 +286,16 @@ export function BilanceApp() {
                 event.target.value = ""
               }}
             />
-            <Button type="button" className="mt-4" onClick={() => inputRef.current?.click()} disabled={busy}>
-              <FileUp />
-              {busy ? "Berem konte…" : "Dodaj PDF"}
-            </Button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button type="button" onClick={() => inputRef.current?.click()} disabled={busy || savingArchive}>
+                <FileUp />
+                {busy ? "Berem konte…" : "Dodaj PDF"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => void openArchive()}>
+                <Archive />
+                Arhiv{archiveItems.length > 0 ? ` (${archiveItems.length})` : ""}
+              </Button>
+            </div>
             {error ? (
               <p className="mt-3 text-sm text-destructive" role="alert">
                 {error}
@@ -221,6 +305,61 @@ export function BilanceApp() {
           <PdfPreview url={pdfUrl} title={`Bruto bilanca ${pdfName}`} />
         </aside>
       </div>
+
+      <Dialog open={pendingFinal !== null} onOpenChange={(open) => { if (!open && !savingArchive) setPendingFinal(null) }}>
+        <DialogContent className="sm:max-w-md" showCloseButton={!savingArchive}>
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-navy">Je ta bilanca končna?</DialogTitle>
+            <DialogDescription>
+              Obrazec je sestavljen iz nove bruto bilance {pendingFinal?.statement.sourceName}.{" "}
+              {pendingFinal?.statement.company}, obdobje {pendingFinal?.statement.period}. Končna bilanca se shrani v
+              arhiv skupaj z izvorno datoteko.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPendingFinal(null)} disabled={savingArchive}>
+              Še ni končna
+            </Button>
+            <Button type="button" onClick={() => void confirmFinal()} disabled={savingArchive}>
+              {savingArchive ? "Shranjujem…" : "Shrani v arhiv"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-2xl text-navy">Arhiv končnih bilanc</DialogTitle>
+            <DialogDescription>Shranjene končne bilance in bruto bilance, iz katerih so sestavljene.</DialogDescription>
+          </DialogHeader>
+          {archiveError ? (
+            <p className="text-sm text-destructive" role="alert">
+              {archiveError}
+            </p>
+          ) : null}
+          {archiveItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">V arhivu še ni končne bilance.</p>
+          ) : (
+            <ul className="max-h-80 space-y-2 overflow-auto">
+              {archiveItems.map((item) => (
+                <li key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-navy">{item.company}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {item.period} · {item.sourceName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{formatSavedAt(item.savedAt)}</p>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void openArchived(item.id)} disabled={busy}>
+                    Odpri
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
