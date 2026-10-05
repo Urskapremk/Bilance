@@ -22,7 +22,9 @@ export function StatementDocument({
   busy?: boolean
 }) {
   const current = rollup(statement.balance.current)
-  const previous = rollup(statement.balance.previous)
+  const opening = rollup(statement.balance.previous)
+  const published = statement.publicPrevious?.amounts
+  const previous = published ?? opening
   const income = rollupIncome(statement.income)
   const issues = reviewColumn(current, statement.currentDate)
   const balanced = issues.every((issue) => issue.severity !== "error")
@@ -64,8 +66,11 @@ export function StatementDocument({
               <p className="text-xs font-medium tracking-[0.2em] text-gold uppercase print:text-[10px]">Družba</p>
               <h2 className="font-heading mt-1 text-3xl font-semibold text-navy print:text-[22px] print:leading-none">{statement.company}</h2>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground print:mt-1 print:text-[10.5px] print:leading-snug">
-                Obdobje {statement.period}. Stanje na dan {statement.currentDate}, primerjava z{" "}
-                {statement.previousDate}. Zneski v evrih.
+                Obdobje {statement.period}. Stanje na dan {statement.currentDate}.{" "}
+                {statement.publicPrevious
+                  ? `Stolpec ${statement.previousDate} je javna objava AJPES za leto ${statement.publicPrevious.year}, matična številka ${statement.publicPrevious.registration}.`
+                  : `Primerjava z ${statement.previousDate} je otvoritveni saldo bruto bilance.`}{" "}
+                Zneski v evrih.
               </p>
             </div>
             <p
@@ -104,8 +109,10 @@ export function StatementDocument({
               company={statement.company}
               currentDate={statement.currentDate}
               previousDate={statement.previousDate}
+              fromPublication={Boolean(published)}
               current={current}
               previous={previous}
+              publishedKeys={published ? new Set(Object.keys(published)) : null}
               showZeros={showZeros}
             />
           ) : (
@@ -170,20 +177,28 @@ function BalanceTable({
   company,
   currentDate,
   previousDate,
+  fromPublication,
   current,
   previous,
+  publishedKeys,
   showZeros,
 }: {
   company: string
   currentDate: string
   previousDate: string
+  fromPublication: boolean
   current: Record<string, number>
   previous: Record<string, number>
+  publishedKeys: Set<string> | null
   showZeros: boolean
 }) {
   const rows = LINES.filter((line) => {
     if (showZeros) return true
-    return descendantLeaves(line.aop).some((aop) => (current[aop] ?? 0) !== 0 || (previous[aop] ?? 0) !== 0)
+    const leaves = descendantLeaves(line.aop)
+    if (leaves.some((aop) => (current[aop] ?? 0) !== 0)) return true
+    if (!publishedKeys) return leaves.some((aop) => (previous[aop] ?? 0) !== 0)
+    if ((publishedKeys.has(line.aop) ? (previous[line.aop] ?? 0) : 0) !== 0) return true
+    return leaves.some((aop) => publishedKeys.has(aop) && (previous[aop] ?? 0) !== 0)
   })
 
   return (
@@ -195,7 +210,14 @@ function BalanceTable({
             <th className="px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-14 print:px-2 print:py-2">AOP</th>
             <th className="w-40 px-3 py-3 text-right font-medium print:w-[88px] print:px-2 print:py-2">{currentDate}</th>
-            <th className="w-40 px-3 py-3 text-right font-medium md:pr-7 print:w-[88px] print:px-2 print:py-2">{previousDate}</th>
+            <th className="w-40 px-3 py-3 text-right font-medium md:pr-7 print:w-[88px] print:px-2 print:py-2">
+              <span className="block">{previousDate}</span>
+              {fromPublication ? (
+                <span className="mt-0.5 block text-[10px] font-normal tracking-normal text-gold normal-case print:text-[8px]">
+                  javna objava
+                </span>
+              ) : null}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -204,7 +226,7 @@ function BalanceTable({
               key={line.aop}
               line={line}
               primary={current[line.aop] ?? 0}
-              secondary={previous[line.aop] ?? 0}
+              secondary={publishedKeys && !publishedKeys.has(line.aop) ? null : (previous[line.aop] ?? 0)}
             />
           ))}
         </tbody>
@@ -254,7 +276,7 @@ function StatementRow({
 }: {
   line: LineDef | IncomeLine
   primary: number
-  secondary?: number
+  secondary?: number | null
 }) {
   const band = line.depth === 0
   return (
@@ -281,7 +303,7 @@ function StatementRow({
             band && "font-medium text-navy",
           )}
         >
-          {formatCents(secondary)}
+          {secondary === null ? "—" : formatCents(secondary)}
         </td>
       ) : null}
     </tr>

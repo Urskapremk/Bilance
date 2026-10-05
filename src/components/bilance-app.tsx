@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import { PdfPreview } from "@/components/pdf-preview"
 import { StatementDocument } from "@/components/statement-document"
 import { Button } from "@/components/ui/button"
+import { attachPublicFiling } from "@/lib/ajpes-public"
 import { grafam, mappingNotes } from "@/lib/grafam"
 import type { Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
@@ -14,7 +15,7 @@ type View = "bilanca" | "izkaz"
 
 const DEFAULT_PDF = "/sources/Grafam_BB_31.08.2026.pdf"
 
-const initialStatement: Statement = {
+const initialStatement: Statement = attachPublicFiling({
   company: grafam.company,
   period: grafam.period,
   currentDate: grafam.currentDate,
@@ -27,7 +28,7 @@ const initialStatement: Statement = {
   income: { ...grafam.income },
   notes: [...mappingNotes],
   warnings: [],
-}
+})
 
 export function BilanceApp() {
   const [view, setView] = useState<View>("bilanca")

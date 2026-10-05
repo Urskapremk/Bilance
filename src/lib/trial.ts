@@ -1,3 +1,4 @@
+import { attachPublicFiling, type PublicFiling } from "@/lib/ajpes-public"
 import { rollup } from "@/lib/compute"
 import { rollupIncome } from "@/lib/income"
 
@@ -11,6 +12,8 @@ export type Statement = {
     current: Record<string, number>
     previous: Record<string, number>
   }
+  /** Javna objava AJPES za primerjalni stolpec, kadar je za družbo na voljo. */
+  publicPrevious?: PublicFiling
   income: Record<string, number>
   notes: string[]
   warnings: string[]
@@ -62,7 +65,7 @@ export function buildStatement(text: string, sourceName: string): Statement {
     )
   }
 
-  return {
+  return attachPublicFiling({
     company: readCompany(text),
     period: `${pretty(period.start)}–${pretty(period.end)}`,
     currentDate: pretty(period.end),
@@ -72,7 +75,7 @@ export function buildStatement(text: string, sourceName: string): Statement {
     income: income.leaves,
     notes: notesFor(accounts, result !== 0 && gap === result, result > 0),
     warnings,
-  }
+  })
 }
 
 function column(accounts: Account[], field: "open" | "close") {
