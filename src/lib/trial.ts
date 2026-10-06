@@ -41,6 +41,40 @@ const ACCOUNT_LINE = /^(\d+)\s+(.+)$/
 
 export class TrialBalanceError extends Error {}
 
+/** Ročni vnos tekočega leta. Seštevki se izračunajo na obrazcu; dobiček obdobja ostane povezan z bilanco. */
+export function applyCurrentAmount(
+  statement: Statement,
+  obrazec: "bilanca" | "izkaz",
+  aop: string,
+  cents: number,
+): Statement {
+  const amount = Math.round(cents)
+  if (obrazec === "bilanca") {
+    const leaves = { ...statement.balance.current }
+    if (amount === 0) delete leaves[aop]
+    else leaves[aop] = amount
+    return { ...statement, balance: { ...statement.balance, current: leaves } }
+  }
+
+  const income = { ...statement.income }
+  if (amount === 0) delete income[aop]
+  else income[aop] = amount
+  const before = rollupIncome(statement.income)
+  const previousResult = (before["186"] ?? 0) - (before["187"] ?? 0)
+  const linked =
+    (statement.balance.current["070"] ?? 0) - (statement.balance.current["071"] ?? 0) === previousResult
+  const leaves = { ...statement.balance.current }
+  if (linked) {
+    const rolled = rollupIncome(income)
+    const result = (rolled["186"] ?? 0) - (rolled["187"] ?? 0)
+    delete leaves["070"]
+    delete leaves["071"]
+    if (result > 0) leaves["070"] = result
+    if (result < 0) leaves["071"] = -result
+  }
+  return { ...statement, income, balance: { ...statement.balance, current: leaves } }
+}
+
 export function buildStatement(text: string, sourceName: string, formulas: AccountFormula[] = []): Statement {
   const accounts = parseAccounts(text)
   if (accounts.length < 3) {

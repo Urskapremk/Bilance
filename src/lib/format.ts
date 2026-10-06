@@ -17,6 +17,19 @@ export function formatCents(value: number): string {
   return cents.format(value / 100)
 }
 
+/** Znesek v centih. Pike in presledki so ločila tisočic, vejica je decimalno ločilo. */
+export function parseCents(raw: string, allowNegative = true): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === "-" || trimmed === "+") return null
+  const normalized = trimmed.replace(/\s/g, "").replace(/\./g, "").replace(",", ".")
+  if (!/^[+-]?\d+(\.\d+)?$/.test(normalized)) return null
+  const value = Number(normalized)
+  if (!Number.isFinite(value)) return null
+  const amount = Math.round(value * 100)
+  if (!allowNegative && amount < 0) return null
+  return amount
+}
+
 /** Cela števila v eurih. Pike in presledki so ločila tisočic, vejica je decimalno ločilo. */
 export function parseEur(raw: string, allowNegative: boolean): number | null {
   const trimmed = raw.trim()

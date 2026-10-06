@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
-import { mergeFormulas, normalizeFormulas, type AccountFormula } from "@/lib/account-map"
+import { normalizeFormulas, type AccountFormula } from "@/lib/account-map"
 import { clientKey, normalizeClientName } from "@/lib/clients"
 
 type Book = Record<string, AccountFormula[]>
@@ -40,10 +40,10 @@ export async function writeFormulas(company: string, incoming: AccountFormula[])
   const key = clientKey(name)
   if (!key) return []
   const book = await readBook()
-  const merged = mergeFormulas(book[key] ?? [], incoming)
-  if (merged.length) book[key] = merged
+  const next = normalizeFormulas(incoming)
+  if (next.length) book[key] = next
   else delete book[key]
   await mkdir(path.dirname(filePath()), { recursive: true })
   await writeFile(filePath(), JSON.stringify(book, null, 2))
-  return merged
+  return next
 }

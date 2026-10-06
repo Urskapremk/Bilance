@@ -1,10 +1,10 @@
 import Image from "next/image"
-import type { CSSProperties, ReactNode } from "react"
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 
 import { rollup, reviewColumn } from "@/lib/compute"
-import { formatCents } from "@/lib/format"
-import { INCOME_LINES, rollupIncome, type IncomeLine } from "@/lib/income"
-import { LINES, descendantLeaves, type LineDef } from "@/lib/schema"
+import { formatCents, parseCents } from "@/lib/format"
+import { INCOME_LINES, incomeKind, rollupIncome, type IncomeLine } from "@/lib/income"
+import { LINES, descendantLeaves, isCalculated, type LineDef } from "@/lib/schema"
 import type { Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
@@ -14,12 +14,14 @@ export function StatementDocument({
   showZeros,
   toolbar,
   busy = false,
+  onEdit,
 }: {
   statement: Statement
   view: "bilanca" | "izkaz"
   showZeros: boolean
   toolbar?: ReactNode
   busy?: boolean
+  onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
 }) {
   const current = rollup(statement.balance.current)
   const income = rollupIncome(statement.income)
@@ -69,7 +71,8 @@ export function StatementDocument({
               <p className="text-xs font-medium tracking-[0.2em] text-gold uppercase print:text-[10px]">Družba</p>
               <h2 className="font-heading mt-1 text-3xl font-semibold text-navy print:text-[22px] print:leading-none">{statement.company}</h2>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground print:mt-1 print:text-[10.5px] print:leading-snug">
-                Obdobje {statement.period}. Stanje na dan {statement.currentDate}. Prikazano je samo tekoče leto. Zneski v evrih.
+                Obdobje {statement.period}. Stanje na dan {statement.currentDate}. Prikazano je samo tekoče leto. Znesek
+                popravite v vrstici, seštevki se osvežijo takoj. Zneski v evrih.
               </p>
             </div>
             <p
@@ -112,6 +115,7 @@ export function StatementDocument({
               currentDate={statement.currentDate}
               current={current}
               showZeros={showZeros}
+              onEdit={onEdit}
             />
           ) : (
             <IncomeTable
@@ -119,6 +123,7 @@ export function StatementDocument({
               period={statement.period}
               values={income}
               showZeros={showZeros}
+              onEdit={onEdit}
             />
           )}
         </div>
@@ -176,11 +181,13 @@ function BalanceTable({
   currentDate,
   current,
   showZeros,
+  onEdit,
 }: {
   company: string
   currentDate: string
   current: Record<string, number>
   showZeros: boolean
+  onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
 }) {
   const rows = LINES.filter((line) => {
     if (showZeros) return true
@@ -201,7 +208,13 @@ function BalanceTable({
         </thead>
         <tbody>
           {rows.map((line) => (
-            <StatementRow key={line.aop} line={line} primary={current[line.aop] ?? 0} />
+            <StatementRow
+              key={line.aop}
+              line={line}
+              primary={current[line.aop] ?? 0}
+              editable={Boolean(onEdit) && !isCalculated(line.aop)}
+              onCommit={onEdit ? (cents) => onEdit("bilanca", line.aop, cents) : undefined}
+            />
           ))}
         </tbody>
       </table>
@@ -214,11 +227,13 @@ function IncomeTable({
   period,
   values,
   showZeros,
+  onEdit,
 }: {
   company: string
   period: string
   values: Record<string, number>
   showZeros: boolean
+  onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
 }) {
   const rows = INCOME_LINES.filter((line) => showZeros || (values[line.aop] ?? 0) !== 0)
 
@@ -235,7 +250,13 @@ function IncomeTable({
         </thead>
         <tbody>
           {rows.map((line) => (
-            <StatementRow key={line.aop} line={line} primary={values[line.aop] ?? 0} />
+            <StatementRow
+              key={line.aop}
+              line={line}
+              primary={values[line.aop] ?? 0}
+              editable={Boolean(onEdit) && incomeKind(line.aop) !== null}
+              onCommit={onEdit ? (cents) => onEdit("izkaz", line.aop, cents) : undefined}
+            />
           ))}
         </tbody>
       </table>
@@ -246,9 +267,13 @@ function IncomeTable({
 function StatementRow({
   line,
   primary,
+  editable = false,
+  onCommit,
 }: {
   line: LineDef | IncomeLine
   primary: number
+  editable?: boolean
+  onCommit?: (cents: number) => void
 }) {
   const band = line.depth === 0
   return (
@@ -266,8 +291,57 @@ function StatementRow({
       </th>
       <td className="px-3 py-2.5 text-center font-mono text-xs text-gold tabular-nums print:px-2 print:py-[3px] print:text-[10px]">{line.aop}</td>
       <td className={cn("px-3 py-2.5 text-right tabular-nums md:pr-7 print:px-3 print:py-[3px]", band && "font-medium text-navy")}>
-        {formatCents(primary)}
+        {editable && onCommit ? (
+          <AmountField label={`${line.aop} ${line.label}`} value={primary} onCommit={onCommit} />
+        ) : (
+          formatCents(primary)
+        )}
       </td>
     </tr>
+  )
+}
+
+function AmountField({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string
+  value: number
+  onCommit: (cents: number) => void
+}) {
+  const [text, setText] = useState(() => formatCents(value))
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!focused) setText(formatCents(value))
+  }, [focused, value])
+
+  return (
+    <>
+      <input
+        aria-label={label}
+        inputMode="decimal"
+        className="no-print h-8 w-full rounded-md border border-transparent bg-transparent px-2 text-right text-sm tabular-nums text-navy outline-none hover:border-border focus:border-gold focus:bg-card"
+        value={text}
+        onFocus={(event) => {
+          setFocused(true)
+          event.currentTarget.select()
+        }}
+        onChange={(event) => {
+          const next = event.target.value
+          setText(next)
+          const parsed = parseCents(next)
+          if (parsed !== null) onCommit(parsed)
+        }}
+        onBlur={() => {
+          setFocused(false)
+          const parsed = parseCents(text)
+          onCommit(parsed ?? 0)
+          setText(formatCents(parsed ?? 0))
+        }}
+      />
+      <span className="hidden print:inline">{formatCents(value)}</span>
+    </>
   )
 }

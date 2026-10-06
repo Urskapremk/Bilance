@@ -67,6 +67,24 @@ export function mergeFormulas(saved: AccountFormula[], incoming: AccountFormula[
   return normalizeFormulas([...saved, ...incoming])
 }
 
+/** Celoten zemljevid po popravku v oknu formul. Konti v vrsticah zamenjajo prejšnji vnos. */
+export function formulasForEditor(
+  stored: AccountFormula[],
+  rows: AccountRow[],
+  choices: Record<string, string>,
+): AccountFormula[] {
+  const touched = new Set(rows.map((row) => row.code))
+  const kept = stored.filter((formula) => !touched.has(formula.code))
+  const chosen: AccountFormula[] = []
+  for (const row of rows) {
+    const digits = (choices[row.code] ?? "").trim()
+    const aop = /^\d+$/.test(digits) ? digits.padStart(3, "0") : ""
+    if (!isSelectableAop(aop) || aop === row.suggested) continue
+    chosen.push({ code: row.code, aop })
+  }
+  return normalizeFormulas([...kept, ...chosen])
+}
+
 export const AOP_CHOICES: { bilanca: AopChoice[]; izkaz: AopChoice[] } = {
   bilanca: LEAF_AOPS.map((aop) => ({ aop, label: LINE_BY_AOP[aop]?.label ?? aop })),
   izkaz: INCOME_LINES.filter((line) => incomeKind(line.aop) !== null).map((line) => ({

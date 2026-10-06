@@ -1,18 +1,11 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { AOP_CHOICES, isSelectableAop, type AccountFormula, type AccountRow } from "@/lib/account-map"
 import { formatCents } from "@/lib/format"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -23,8 +16,10 @@ export function FormulaDialog({
   mode,
   busy,
   error,
+  embedded = false,
   onOpenChange,
   onConfirm,
+  onPreview,
 }: {
   open: boolean
   company: string
@@ -32,9 +27,30 @@ export function FormulaDialog({
   mode: "nova" | "vse"
   busy: boolean
   error: string | null
+  embedded?: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: (formule: AccountFormula[]) => void
+  onPreview?: (choices: Record<string, string>) => void
 }) {
+  const form = open ? (
+    <FormulaForm
+      key={`${company}:${mode}:${rows.map((row) => row.code).join(",")}`}
+      company={company}
+      rows={rows}
+      mode={mode}
+      busy={busy}
+      error={error}
+      onClose={() => onOpenChange(false)}
+      onConfirm={onConfirm}
+      onPreview={onPreview}
+    />
+  ) : null
+
+  if (embedded) {
+    if (!open) return null
+    return <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border">{form}</div>
+  }
+
   return (
     <Dialog
       open={open}
@@ -53,20 +69,7 @@ export function FormulaDialog({
           if (busy) event.preventDefault()
         }}
       >
-        {open ? (
-          <div className="flex max-h-[min(560px,calc(100vh-6rem))] min-h-0 flex-col gap-4">
-            <FormulaForm
-              key={`${company}:${mode}:${rows.map((row) => row.code).join(",")}`}
-              company={company}
-              rows={rows}
-              mode={mode}
-              busy={busy}
-              error={error}
-              onClose={() => onOpenChange(false)}
-              onConfirm={onConfirm}
-            />
-          </div>
-        ) : null}
+        {open ? <div className="flex max-h-[min(560px,calc(100vh-6rem))] min-h-0 flex-col gap-4">{form}</div> : null}
       </DialogContent>
     </Dialog>
   )
@@ -90,6 +93,7 @@ function FormulaForm({
   error,
   onClose,
   onConfirm,
+  onPreview,
 }: {
   company: string
   rows: AccountRow[]
@@ -98,11 +102,23 @@ function FormulaForm({
   error: string | null
   onClose: () => void
   onConfirm: (formule: AccountFormula[]) => void
+  onPreview?: (choices: Record<string, string>) => void
 }) {
   const [query, setQuery] = useState("")
   const [choices, setChoices] = useState<Record<string, string>>(() =>
     Object.fromEntries(rows.map((row) => [row.code, row.aop])),
   )
+  const preview = useRef(onPreview)
+  preview.current = onPreview
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) {
+      first.current = false
+      return
+    }
+    const timer = window.setTimeout(() => preview.current?.(choices), 180)
+    return () => window.clearTimeout(timer)
+  }, [choices])
   const needle = query.trim().toLocaleLowerCase("sl")
   const visible = useMemo(
     () =>
@@ -125,15 +141,15 @@ function FormulaForm({
   }, [])
 
   return (
-    <>
-      <DialogHeader>
-        <DialogTitle className="text-2xl text-navy">Kam gre konto?</DialogTitle>
-        <DialogDescription>
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5">
+      <div className="space-y-2">
+        <h2 className="font-heading text-2xl font-semibold text-navy">Kam gre konto?</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
           {mode === "nova"
-            ? `Za ${company} so predlogi že vpisani. Spremenite samo konte, ki gredo drugam, na primer 9831 na AOP 090. Izbor se shrani in velja tudi za naslednje bruto bilance te stranke.`
-            : `Formule stranke ${company}. Spremenjeni konto velja za to in za naslednje bruto bilance.`}
-        </DialogDescription>
-      </DialogHeader>
+            ? `Za ${company} so predlogi že vpisani. Ko spremenite konto, na primer 9831 na AOP 090, se bilanca stanja in izkaz poslovnega izida osvežita takoj.`
+            : `Formule stranke ${company}. Popravek konta se takoj pokaže na obeh obrazcih in velja tudi za naslednje bruto bilance.`}
+        </p>
+      </div>
       <div className="space-y-2">
         <Label htmlFor="isci-konto">Poišči konto</Label>
         <Input
@@ -190,9 +206,9 @@ function FormulaForm({
           {error}
         </p>
       ) : null}
-      <DialogFooter>
+      <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-          Pozneje
+          Zapri
         </Button>
         <Button
           type="button"
@@ -203,7 +219,7 @@ function FormulaForm({
         >
           {busy ? "Shranjujem…" : "Zapomni si za stranko"}
         </Button>
-      </DialogFooter>
-    </>
+      </div>
+    </div>
   )
 }

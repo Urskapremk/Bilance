@@ -6,7 +6,8 @@ import { rollup } from "./compute.ts"
 import { statementFromPdf } from "./from-pdf.ts"
 import { grafam } from "./grafam.ts"
 import { rollupIncome } from "./income.ts"
-import { accountQuestions, buildStatement } from "./trial.ts"
+import { formulasForEditor } from "./account-map.ts"
+import { accountQuestions, applyCurrentAmount, buildStatement } from "./trial.ts"
 
 test("kratek izpis se razporedi na terjatve in obveznosti do dobaviteljev", () => {
   const statement = buildStatement(
@@ -138,6 +139,55 @@ test("analitika brez trištevilčnega konta gre v isto postavko bilance", () => 
   assert.equal(statement.warnings.length, 0)
   const current = rollup(statement.balance.current)
   assert.equal(current["001"], current["055"])
+})
+
+test("popravek izkaza se takoj pozna na dobičku bilance", () => {
+  const statement = buildStatement(
+    [
+      "ACME d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.01.2026",
+      "120 Kupci",
+      "1.000,00 0,00 150,00 0,00 1.150,00 0,00 1.150,00 0,00",
+      "220 Dobavitelji",
+      "0,00 1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 200,00 0,00 200,00 0,00 200,00",
+      "400 Material",
+      "0,00 0,00 50,00 0,00 50,00 0,00 50,00 0,00",
+    ].join("\n"),
+    "acme.pdf",
+  )
+
+  const edited = applyCurrentAmount(statement, "izkaz", "112", (statement.income["112"] ?? 0) + 100)
+  assert.equal(edited.income["112"], 20_100)
+  assert.equal(edited.balance.current["070"], 15_100)
+  assert.equal(applyCurrentAmount(edited, "bilanca", "050", 116_000).balance.current["050"], 116_000)
+})
+
+test("sprememba AOP v formulah zamenja prejšnji konto", () => {
+  const rows = [
+    {
+      code: "9831",
+      name: "Druge kratkoročne finančne obveznosti",
+      amount: 20_000,
+      aop: "074",
+      suggested: "074",
+      obrazec: "bilanca" as const,
+      saved: true,
+    },
+  ]
+  const next = formulasForEditor(
+    [
+      { code: "9831", aop: "074" },
+      { code: "120", aop: "050" },
+    ],
+    rows,
+    { "9831": "090" },
+  )
+  assert.deepEqual(next, [
+    { code: "120", aop: "050" },
+    { code: "9831", aop: "090" },
+  ])
 })
 
 test("bruto bilanca Grafama se razporedi na obrazec AJPES", async () => {

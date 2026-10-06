@@ -50,6 +50,7 @@ export async function POST(request: Request) {
       statement: statementForClient(parsed.statement, name),
       vprasanja: parsed.vprasanja,
       konti: parsed.konti,
+      besedilo: text,
     })
   } catch (error) {
     const message =

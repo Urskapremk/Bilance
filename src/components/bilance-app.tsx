@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "re
 import { FormulaDialog } from "@/components/formula-dialog"
 import { PdfPreview } from "@/components/pdf-preview"
 import { StatementDocument } from "@/components/statement-document"
-import type { AccountFormula, AccountRow } from "@/lib/account-map"
+import { formulasForEditor, type AccountFormula, type AccountRow } from "@/lib/account-map"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -29,7 +29,7 @@ import {
   type ArchiveMeta,
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
-import { readDraft, readStoredFormulas, rememberStoredClient, saveDraft, writeStoredFormulas, listStoredClients } from "@/lib/browser-book"
+import { readDraft, readStoredFormulas, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
   clientKey,
@@ -40,14 +40,16 @@ import {
   SAMPLE_CLIENT,
   statementForClient,
 } from "@/lib/clients"
+import { trialFromText } from "@/lib/from-pdf"
 import { grafam, mappingNotes } from "@/lib/grafam"
-import type { Statement } from "@/lib/trial"
+import { applyCurrentAmount, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
 type ParsedTrial = {
   statement: Statement
   vprasanja: AccountRow[]
   konti: AccountRow[]
+  besedilo?: string
   error?: string
 }
 
@@ -59,6 +61,7 @@ type Workspace = {
   pdfName: string
   phase: "primer" | "osnutek" | "arhiv"
   konti: AccountRow[]
+  besedilo: string
 }
 
 const DEFAULT_PDF = "/sources/Grafam_BB_31.08.2026.pdf"
@@ -121,10 +124,26 @@ export function BilanceApp() {
   const uploadClientRef = useRef<string | null>(null)
   const fileRef = useRef<File | null>(null)
   const workspaces = useRef(new Map<string, Workspace>())
+  const textRef = useRef("")
+  const formulasRef = useRef<AccountFormula[]>([])
+  const phaseRef = useRef(phase)
+  const pdfNameRef = useRef(pdfName)
+  const activeClientRef = useRef(activeClient)
+  const kontiRef = useRef<AccountRow[]>([])
+  const sampleKontiRef = useRef<AccountRow[]>([])
+  const sampleTextRef = useRef("")
+  const persistTimer = useRef<number | null>(null)
 
   useEffect(() => {
     pdfUrlRef.current = pdfUrl
   }, [pdfUrl])
+
+  useEffect(() => {
+    phaseRef.current = phase
+    pdfNameRef.current = pdfName
+    activeClientRef.current = activeClient
+    kontiRef.current = konti
+  }, [phase, pdfName, activeClient, konti])
 
   function showView(next: View) {
     setView(next)
@@ -160,8 +179,126 @@ export function BilanceApp() {
     void refreshClients()
   }, [])
 
+  useEffect(() => {
+    let cancel = false
+    void (async () => {
+      if (textRef.current) return
+      try {
+        const response = await fetch(DEFAULT_PDF)
+        if (!response.ok || cancel) return
+        const file = new File([await response.arrayBuffer()], initialStatement.sourceName, { type: "application/pdf" })
+        const body = new FormData()
+        body.set("file", file)
+        body.set("company", SAMPLE_CLIENT)
+        const parsed = await fetch("/api/bruto-bilanca", { method: "POST", body })
+        const data = (await parsed.json().catch(() => null)) as ParsedTrial | null
+        if (cancel || textRef.current || phaseRef.current !== "primer" || !data?.besedilo) return
+        sampleTextRef.current = data.besedilo
+        textRef.current = data.besedilo
+        sampleKontiRef.current = data.konti ?? []
+        setKonti(data.konti ?? [])
+      } catch {
+        /* vzorec ostane brez preračuna formul */
+      }
+    })()
+    return () => {
+      cancel = true
+    }
+  }, [])
+
   function cacheWorkspace(workspace: Workspace) {
     workspaces.current.set(clientKey(workspace.statement.company), workspace)
+  }
+
+  function rememberWorkspace(next: Statement, nextKonti: AccountRow[] = kontiRef.current) {
+    const pdf = draftRef.current?.pdf
+    if (!pdf) return
+    draftRef.current = { statement: next, pdf }
+    cacheWorkspace({
+      statement: next,
+      pdf,
+      pdfName: pdfNameRef.current,
+      phase: phaseRef.current === "primer" ? "osnutek" : phaseRef.current,
+      konti: nextKonti,
+      besedilo: textRef.current,
+    })
+  }
+
+  function scheduleBook(next: Statement, formule: AccountFormula[], nextKonti: AccountRow[]) {
+    if (persistTimer.current) window.clearTimeout(persistTimer.current)
+    persistTimer.current = window.setTimeout(() => {
+      const pdf = draftRef.current?.pdf
+      void saveStoredFormulas(next.company, formule).catch(() => undefined)
+      void fetch("/api/formule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: next.company, formule }),
+      }).catch(() => undefined)
+      if (!pdf) return
+      void saveDraft(next.company, {
+        statement: next,
+        pdf,
+        pdfName: pdfNameRef.current,
+        konti: nextKonti,
+        besedilo: textRef.current,
+      }).catch(() => undefined)
+    }, 250)
+  }
+
+  async function hydrateText(pdf: ArrayBuffer, name: string) {
+    if (textRef.current) return
+    try {
+      const file = new File([pdf], name, { type: "application/pdf" })
+      const body = new FormData()
+      body.set("file", file)
+      const response = await fetch("/api/bruto-bilanca", { method: "POST", body })
+      const data = (await response.json().catch(() => null)) as ParsedTrial | null
+      if (!textRef.current && data?.besedilo) textRef.current = data.besedilo
+    } catch {
+      /* naslednji popravek počaka na besedilo */
+    }
+  }
+
+  function previewChoices(rows: AccountRow[], choices: Record<string, string>) {
+    const text = textRef.current
+    if (!text) {
+      setFormulaError("Bruto bilanca se še bere. Popravek se na obrazcu pokaže takoj, ko je prebrana.")
+      return
+    }
+    const formule = formulasForEditor(formulasRef.current, rows, choices)
+    try {
+      const parsed = trialFromText(text, pdfNameRef.current || "bruto-bilanca.pdf", formule)
+      const named = statementForClient(parsed.statement, activeClientRef.current || parsed.statement.company)
+      formulasRef.current = formule
+      setStatement(named)
+      setKonti(parsed.konti)
+      setFormulaError(null)
+      rememberWorkspace(named, parsed.konti)
+      scheduleBook(named, formule, parsed.konti)
+    } catch (caught) {
+      setFormulaError(caught instanceof Error ? caught.message : "Obrazca ni bilo mogoče osvežiti.")
+    }
+  }
+
+  function editAmount(obrazec: "bilanca" | "izkaz", aop: string, cents: number) {
+    setStatement((current) => {
+      const next = applyCurrentAmount(current, obrazec, aop, cents)
+      rememberWorkspace(next)
+      const pdf = draftRef.current?.pdf
+      if (pdf) {
+        if (persistTimer.current) window.clearTimeout(persistTimer.current)
+        persistTimer.current = window.setTimeout(() => {
+          void saveDraft(next.company, {
+            statement: next,
+            pdf,
+            pdfName: pdfNameRef.current,
+            konti: kontiRef.current,
+            besedilo: textRef.current,
+          }).catch(() => undefined)
+        }, 250)
+      }
+      return next
+    })
   }
 
   function showPdf(nextUrl: string, name: string) {
@@ -180,7 +317,8 @@ export function BilanceApp() {
     setBlank(false)
     setLinked(true)
     setError(null)
-    setKonti([])
+    textRef.current = sampleTextRef.current
+    setKonti(sampleKontiRef.current)
     setFormulaOpen(false)
     draftRef.current = null
     setSaveAsk(false)
@@ -188,6 +326,7 @@ export function BilanceApp() {
 
   function applyWorkspace(workspace: Workspace) {
     showPdf(URL.createObjectURL(new Blob([workspace.pdf], { type: "application/pdf" })), workspace.pdfName)
+    textRef.current = workspace.besedilo
     setStatement(workspace.statement)
     setActiveClient(workspace.statement.company)
     setPhase(workspace.phase)
@@ -243,6 +382,7 @@ export function BilanceApp() {
       if (namedCompany) {
         body.set("company", namedCompany)
         const savedFormulas = await readStoredFormulas(namedCompany).catch(() => [])
+        formulasRef.current = savedFormulas
         if (savedFormulas.length) body.set("formule", JSON.stringify(savedFormulas))
       }
       const response = await fetch("/api/bruto-bilanca", { method: "POST", body })
@@ -255,7 +395,16 @@ export function BilanceApp() {
       const draft = { statement: named, pdf }
       draftRef.current = draft
       fileRef.current = file
-      cacheWorkspace({ statement: named, pdf, pdfName: file.name, phase: "osnutek", konti: data.konti ?? [] })
+      textRef.current = data.besedilo ?? ""
+      phaseRef.current = "osnutek"
+      cacheWorkspace({
+        statement: named,
+        pdf,
+        pdfName: file.name,
+        phase: "osnutek",
+        konti: data.konti ?? [],
+        besedilo: data.besedilo ?? "",
+      })
       setStatement(named)
       setActiveClient(named.company)
       setKonti(data.konti ?? [])
@@ -283,7 +432,13 @@ export function BilanceApp() {
       })
       try {
         await rememberStoredClient(named.company)
-        await saveDraft(named.company, { statement: named, pdf, pdfName: file.name, konti: data.konti ?? [] })
+        await saveDraft(named.company, {
+          statement: named,
+          pdf,
+          pdfName: file.name,
+          konti: data.konti ?? [],
+          besedilo: data.besedilo ?? "",
+        })
       } catch {
         setError("Bilanca je izračunana, baze stranke pa ni bilo mogoče zapisati.")
       }
@@ -305,24 +460,45 @@ export function BilanceApp() {
   }
 
   async function rememberFormulas(formule: AccountFormula[]) {
-    const file = fileRef.current
-    const name = statement.company
+    const name = activeClientRef.current || statement.company
     if (!name) return
     setSavingFormulas(true)
     setFormulaError(null)
     try {
-      await writeStoredFormulas(name, formule)
+      const full = formulasForEditor(
+        formulasRef.current,
+        formulaRows,
+        Object.fromEntries(formule.map((formula) => [formula.code, formula.aop])),
+      )
+      formulasRef.current = full
+      await saveStoredFormulas(name, full)
       const response = await fetch("/api/formule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: name, formule }),
+        body: JSON.stringify({ company: name, formule: full }),
       })
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null
         throw new Error(payload?.error ?? "Formul ni bilo mogoče shraniti.")
       }
+      if (textRef.current) {
+        const parsed = trialFromText(textRef.current, pdfNameRef.current || "bruto-bilanca.pdf", full)
+        const named = statementForClient(parsed.statement, name)
+        setStatement(named)
+        setKonti(parsed.konti)
+        rememberWorkspace(named, parsed.konti)
+        const pdf = draftRef.current?.pdf
+        if (pdf) {
+          await saveDraft(name, {
+            statement: named,
+            pdf,
+            pdfName: pdfNameRef.current,
+            konti: parsed.konti,
+            besedilo: textRef.current,
+          })
+        }
+      }
       setFormulaOpen(false)
-      if (file) await loadFile(file, name)
     } catch (caught) {
       setFormulaError(caught instanceof Error ? caught.message : "Formul ni bilo mogoče shraniti.")
     } finally {
@@ -352,13 +528,16 @@ export function BilanceApp() {
     }
     const draft = await readDraft(name).catch(() => null)
     if (draft) {
+      textRef.current = draft.besedilo ?? ""
       applyWorkspace({
         statement: draft.statement,
         pdf: draft.pdf,
         pdfName: draft.pdfName,
         phase: "osnutek",
         konti: draft.konti ?? [],
+        besedilo: draft.besedilo ?? "",
       })
+      if (!draft.besedilo) void hydrateText(draft.pdf, draft.pdfName)
       return
     }
     const latest = items.find((item) => sameClient(item.company, name))
@@ -434,6 +613,7 @@ export function BilanceApp() {
         pdfName: draft.statement.sourceName,
         phase: "arhiv",
         konti,
+        besedilo: textRef.current,
       })
       void refreshClients()
       draftRef.current = null
@@ -466,13 +646,16 @@ export function BilanceApp() {
       showPdf(nextUrl, stored.sourceName)
       setStatement(stored.statement)
       setActiveClient(stored.statement.company)
+      textRef.current = ""
       cacheWorkspace({
         statement: stored.statement,
         pdf: stored.pdf,
         pdfName: stored.sourceName,
         phase: "arhiv",
         konti: [],
+        besedilo: "",
       })
+      void hydrateText(stored.pdf, stored.sourceName)
       setKonti([])
       setFormulaOpen(false)
       setLinked(true)
@@ -624,7 +807,14 @@ export function BilanceApp() {
             </div>
           </section>
         ) : (
-          <StatementDocument statement={statement} view={view} showZeros={showZeros} toolbar={toolbar} busy={busy} />
+          <StatementDocument
+            statement={statement}
+            view={view}
+            showZeros={showZeros}
+            toolbar={toolbar}
+            busy={busy}
+            onEdit={editAmount}
+          />
         )}
 
         <aside
@@ -665,8 +855,8 @@ export function BilanceApp() {
                   ? phase === "arhiv"
                     ? "Shranjeno v arhiv. Obrazec je sestavljen iz te bruto bilance."
                     : phase === "osnutek"
-                      ? "Najprej preglejte bilanco. Novi konti vprašajo, v kateri AOP gredo, in se za to stranko zapomnijo. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
-                      : "Obrazec je sestavljen iz tega izpisa. Tukaj ostane, da ga lahko primerjate s postavkami."
+                      ? "Najprej preglejte bilanco. Popravek konta ali zneska se takoj pokaže na obeh obrazcih. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
+                      : "Obrazec je sestavljen iz tega izpisa. Popravek zneska v tekočem letu se na njem pokaže takoj."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
             <input
@@ -715,10 +905,17 @@ export function BilanceApp() {
                   variant="outline"
                   disabled={busy || savingFormulas}
                   onClick={() => {
-                    setFormulaMode("vse")
-                    setFormulaRows(konti)
-                    setFormulaError(null)
-                    setFormulaOpen(true)
+                    void readStoredFormulas(activeClient)
+                      .then((formule) => {
+                        formulasRef.current = formule
+                      })
+                      .catch(() => undefined)
+                      .finally(() => {
+                        setFormulaMode("vse")
+                        setFormulaRows(konti)
+                        setFormulaError(null)
+                        setFormulaOpen(true)
+                      })
                   }}
                 >
                   Formule
@@ -731,13 +928,25 @@ export function BilanceApp() {
               </p>
             ) : null}
           </div>
-          {blank ? (
+          {formulaOpen ? null : blank ? (
             <div className="flex flex-1 items-center justify-center p-8 text-center text-sm leading-relaxed text-muted-foreground">
               Bruto bilanca za {activeClient} se pokaže tukaj, ko dodate PDF.
             </div>
           ) : (
             <PdfPreview url={pdfUrl} title={`Bruto bilanca ${pdfName}`} />
           )}
+          <FormulaDialog
+            embedded
+            open={formulaOpen}
+            company={statement.company}
+            rows={formulaRows}
+            mode={formulaMode}
+            busy={savingFormulas}
+            error={formulaError}
+            onOpenChange={setFormulaOpen}
+            onConfirm={(formule) => void rememberFormulas(formule)}
+            onPreview={(choices) => previewChoices(formulaRows, choices)}
+          />
         </aside>
       </div>
 
@@ -910,17 +1119,6 @@ export function BilanceApp() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <FormulaDialog
-        open={formulaOpen}
-        company={statement.company}
-        rows={formulaRows}
-        mode={formulaMode}
-        busy={savingFormulas}
-        error={formulaError}
-        onOpenChange={setFormulaOpen}
-        onConfirm={(formule) => void rememberFormulas(formule)}
-      />
 
       <Dialog
         open={newClientOpen}

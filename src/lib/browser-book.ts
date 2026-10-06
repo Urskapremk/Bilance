@@ -10,6 +10,7 @@ export type ClientDraft = {
   pdf: ArrayBuffer
   pdfName: string
   konti: AccountRow[]
+  besedilo?: string
   savedAt: string
 }
 
@@ -73,6 +74,17 @@ export async function writeStoredFormulas(company: string, incoming: AccountForm
   await put(db, "formule", merged, "vse")
   db.close()
   return merged
+}
+
+/** Zapiše celoten zemljevid stranke, tudi ko se formula umakne. */
+export async function saveStoredFormulas(company: string, formule: AccountFormula[]): Promise<AccountFormula[]> {
+  const name = await rememberStoredClient(company)
+  if (sameClient(name, SAMPLE_CLIENT)) return []
+  const clean = mergeFormulas([], formule)
+  const db = await openClient(name)
+  await put(db, "formule", clean, "vse")
+  db.close()
+  return clean
 }
 
 export async function saveDraft(company: string, draft: Omit<ClientDraft, "savedAt">): Promise<void> {
