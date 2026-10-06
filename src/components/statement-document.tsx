@@ -22,12 +22,12 @@ export function StatementDocument({
   busy?: boolean
 }) {
   const current = rollup(statement.balance.current)
-  const opening = rollup(statement.balance.previous)
-  const published = statement.publicPrevious?.amounts
-  const previous = published ?? opening
   const income = rollupIncome(statement.income)
   const issues = reviewColumn(current, statement.currentDate)
   const balanced = issues.every((issue) => issue.severity !== "error")
+  const notes = statement.notes.filter(
+    (note) => !note.includes(statement.previousDate) && !note.includes("javna objava"),
+  )
 
   return (
     <article className="print-sheet min-w-0">
@@ -69,11 +69,7 @@ export function StatementDocument({
               <p className="text-xs font-medium tracking-[0.2em] text-gold uppercase print:text-[10px]">Družba</p>
               <h2 className="font-heading mt-1 text-3xl font-semibold text-navy print:text-[22px] print:leading-none">{statement.company}</h2>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground print:mt-1 print:text-[10.5px] print:leading-snug">
-                Obdobje {statement.period}. Stanje na dan {statement.currentDate}.{" "}
-                {statement.publicPrevious
-                  ? `Stolpec ${statement.previousDate} je javna objava AJPES za leto ${statement.publicPrevious.year}, matična številka ${statement.publicPrevious.registration}.`
-                  : `Primerjava z ${statement.previousDate} je otvoritveni saldo bruto bilance.`}{" "}
-                Zneski v evrih.
+                Obdobje {statement.period}. Stanje na dan {statement.currentDate}. Prikazano je samo tekoče leto. Zneski v evrih.
               </p>
             </div>
             <p
@@ -114,11 +110,7 @@ export function StatementDocument({
             <BalanceTable
               company={statement.company}
               currentDate={statement.currentDate}
-              previousDate={statement.previousDate}
-              fromPublication={Boolean(published)}
               current={current}
-              previous={previous}
-              publishedKeys={published ? new Set(Object.keys(published)) : null}
               showZeros={showZeros}
             />
           ) : (
@@ -144,7 +136,7 @@ export function StatementDocument({
             Kako so konti razporejeni
           </summary>
           <ul className="mt-4 space-y-2 text-sm leading-relaxed text-muted-foreground">
-            {statement.notes.map((note) => (
+            {notes.map((note) => (
               <li key={note}>{note}</li>
             ))}
           </ul>
@@ -182,58 +174,34 @@ function Metric({
 function BalanceTable({
   company,
   currentDate,
-  previousDate,
-  fromPublication,
   current,
-  previous,
-  publishedKeys,
   showZeros,
 }: {
   company: string
   currentDate: string
-  previousDate: string
-  fromPublication: boolean
   current: Record<string, number>
-  previous: Record<string, number>
-  publishedKeys: Set<string> | null
   showZeros: boolean
 }) {
   const rows = LINES.filter((line) => {
     if (showZeros) return true
-    const leaves = descendantLeaves(line.aop)
-    if (leaves.some((aop) => (current[aop] ?? 0) !== 0)) return true
-    if (!publishedKeys) return leaves.some((aop) => (previous[aop] ?? 0) !== 0)
-    if ((publishedKeys.has(line.aop) ? (previous[line.aop] ?? 0) : 0) !== 0) return true
-    return leaves.some((aop) => publishedKeys.has(aop) && (previous[aop] ?? 0) !== 0)
+    if ((current[line.aop] ?? 0) !== 0) return true
+    return descendantLeaves(line.aop).some((aop) => (current[aop] ?? 0) !== 0)
   })
 
   return (
     <div className="min-w-0 overflow-x-auto">
-      <table className="w-full min-w-[720px] border-collapse text-sm print:min-w-0 print:text-[10.5px]">
-        <caption className="sr-only">Bilanca stanja {company}</caption>
+      <table className="w-full min-w-[640px] border-collapse text-sm print:min-w-0 print:text-[10.5px]">
+        <caption className="sr-only">Bilanca stanja {company}, {currentDate}</caption>
         <thead>
           <tr className="statement-head bg-deep-blue text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[10px]">
             <th className="px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-14 print:px-2 print:py-2">AOP</th>
-            <th className="w-40 px-3 py-3 text-right font-medium print:w-[88px] print:px-2 print:py-2">{currentDate}</th>
-            <th className="w-40 px-3 py-3 text-right font-medium md:pr-7 print:w-[88px] print:px-2 print:py-2">
-              <span className="block">{previousDate}</span>
-              {fromPublication ? (
-                <span className="mt-0.5 block text-[10px] font-normal tracking-normal text-gold normal-case print:text-[8px]">
-                  javna objava
-                </span>
-              ) : null}
-            </th>
+            <th className="w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{currentDate}</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((line) => (
-            <StatementRow
-              key={line.aop}
-              line={line}
-              primary={current[line.aop] ?? 0}
-              secondary={publishedKeys && !publishedKeys.has(line.aop) ? null : (previous[line.aop] ?? 0)}
-            />
+            <StatementRow key={line.aop} line={line} primary={current[line.aop] ?? 0} />
           ))}
         </tbody>
       </table>
@@ -278,11 +246,9 @@ function IncomeTable({
 function StatementRow({
   line,
   primary,
-  secondary,
 }: {
   line: LineDef | IncomeLine
   primary: number
-  secondary?: number | null
 }) {
   const band = line.depth === 0
   return (
@@ -299,19 +265,9 @@ function StatementRow({
         {line.label}
       </th>
       <td className="px-3 py-2.5 text-center font-mono text-xs text-gold tabular-nums print:px-2 print:py-[3px] print:text-[10px]">{line.aop}</td>
-      <td className={cn("px-3 py-2.5 text-right tabular-nums print:px-2 print:py-[3px]", band && "font-medium text-navy")}>
+      <td className={cn("px-3 py-2.5 text-right tabular-nums md:pr-7 print:px-3 print:py-[3px]", band && "font-medium text-navy")}>
         {formatCents(primary)}
       </td>
-      {secondary !== undefined ? (
-        <td
-          className={cn(
-            "px-3 py-2.5 text-right text-muted-foreground tabular-nums md:pr-7 print:px-2 print:py-[3px]",
-            band && "font-medium text-navy",
-          )}
-        >
-          {secondary === null ? "—" : formatCents(secondary)}
-        </td>
-      ) : null}
     </tr>
   )
 }
