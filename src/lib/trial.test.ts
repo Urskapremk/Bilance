@@ -6,7 +6,7 @@ import { rollup } from "./compute.ts"
 import { statementFromPdf } from "./from-pdf.ts"
 import { grafam } from "./grafam.ts"
 import { rollupIncome } from "./income.ts"
-import { buildStatement } from "./trial.ts"
+import { accountQuestions, buildStatement } from "./trial.ts"
 
 test("kratek izpis se razporedi na terjatve in obveznosti do dobaviteljev", () => {
   const statement = buildStatement(
@@ -66,6 +66,49 @@ test("negativne razlike na kontu 7580 gredo na AOP 181", () => {
     statement.warnings.some((warning) => warning.includes("7580")),
     false,
   )
+})
+
+test("konto 9831 po formuli stranke gre na AOP 090", () => {
+  const text = [
+    "BLIŠČ d.o.o.",
+    "Bilanca za obdobje 01.01.2026-31.08.2026",
+    "120 Kupci",
+    "1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00 0,00",
+    "220 Dobavitelji",
+    "0,00 800,00 0,00 0,00 0,00 800,00 0,00 800,00",
+    "9831 Druge kratkoročne finančne obveznosti",
+    "0,00 200,00 0,00 0,00 0,00 200,00 0,00 200,00",
+  ].join("\n")
+
+  const standard = buildStatement(text, "blisc.pdf")
+  assert.equal(standard.balance.current["074"], 20_000)
+  assert.equal(standard.balance.current["090"], undefined)
+
+  const asked = accountQuestions(text, [])
+  const question = asked.find((row) => row.code === "9831")
+  assert.equal(question?.suggested, "074")
+  assert.equal(question?.aop, "074")
+
+  const mapped = buildStatement(text, "blisc.pdf", [{ code: "9831", aop: "090" }])
+  assert.equal(mapped.balance.current["090"], 20_000)
+  assert.equal(mapped.balance.current["074"], undefined)
+  assert.equal(mapped.balance.current["050"], 100_000)
+  assert.equal(mapped.balance.current["093"], 80_000)
+  assert.ok(mapped.notes.some((note) => note.includes("9831") && note.includes("090")))
+  const current = rollup(mapped.balance.current)
+  assert.equal(current["001"], current["055"])
+  assert.equal(
+    accountQuestions(text, [{ code: "9831", aop: "090" }]).some((row) => row.code === "9831"),
+    false,
+  )
+
+  const kept = buildStatement(text, "blisc.pdf", [{ code: "9831", aop: "074" }])
+  assert.equal(kept.balance.current["074"], 20_000)
+  assert.equal(kept.balance.current["090"], undefined)
+
+  const prefixed = buildStatement(text, "blisc.pdf", [{ code: "983", aop: "090" }])
+  assert.equal(prefixed.balance.current["090"], 20_000)
+  assert.equal(accountQuestions(text, [{ code: "983", aop: "090" }]).some((row) => row.code === "9831"), false)
 })
 
 test("analitika brez trištevilčnega konta gre v isto postavko bilance", () => {

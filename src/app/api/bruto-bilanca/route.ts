@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 
-import { statementFromPdf } from "@/lib/from-pdf"
+import { mergeFormulas, normalizeFormulas } from "@/lib/account-map"
+import { normalizeClientName, statementForClient } from "@/lib/clients"
+import { readFormulas } from "@/lib/formulas-disk"
+import { statementFromPdf, trialFromText } from "@/lib/from-pdf"
+import { pdfToText } from "@/lib/pdf-lines"
 import { TrialBalanceError } from "@/lib/trial"
 
 export const runtime = "nodejs"
@@ -25,9 +29,28 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) {
     return Response.json({ error: "Dodajte datoteko PDF." }, { status: 400 })
   }
+  const companyField = form.get("company")
+  const company = typeof companyField === "string" ? normalizeClientName(companyField) : ""
+  const formuleField = form.get("formule")
+  let posted = normalizeFormulas([])
+  if (typeof formuleField === "string" && formuleField.trim()) {
+    try {
+      posted = normalizeFormulas(JSON.parse(formuleField) as unknown)
+    } catch {
+      return Response.json({ error: "Formul kontov ne prepoznam." }, { status: 400 })
+    }
+  }
   try {
-    const statement = await statementFromPdf(new Uint8Array(await file.arrayBuffer()), file.name)
-    return Response.json(statement)
+    const text = await pdfToText(new Uint8Array(await file.arrayBuffer()))
+    const probe = trialFromText(text, file.name)
+    const name = company || probe.statement.company
+    const formulas = mergeFormulas(await readFormulas(name), posted)
+    const parsed = formulas.length > 0 ? trialFromText(text, file.name, formulas) : probe
+    return Response.json({
+      statement: statementForClient(parsed.statement, name),
+      vprasanja: parsed.vprasanja,
+      konti: parsed.konti,
+    })
   } catch (error) {
     const message =
       error instanceof TrialBalanceError

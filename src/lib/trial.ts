@@ -1,6 +1,8 @@
+import { matchFormula, type AccountFormula, type AccountRow, isBalanceLeaf, isSelectableAop } from "@/lib/account-map"
 import { attachPublicFiling, type PublicFiling } from "@/lib/ajpes-public"
 import { rollup } from "@/lib/compute"
-import { rollupIncome } from "@/lib/income"
+import { incomeKind, postsInterestMemo, rollupIncome } from "@/lib/income"
+import { LINE_BY_AOP } from "@/lib/schema"
 
 export type Statement = {
   company: string
@@ -39,7 +41,7 @@ const ACCOUNT_LINE = /^(\d+)\s+(.+)$/
 
 export class TrialBalanceError extends Error {}
 
-export function buildStatement(text: string, sourceName: string): Statement {
+export function buildStatement(text: string, sourceName: string, formulas: AccountFormula[] = []): Statement {
   const accounts = parseAccounts(text)
   if (accounts.length < 3) {
     throw new TrialBalanceError(
@@ -48,9 +50,9 @@ export function buildStatement(text: string, sourceName: string): Statement {
   }
 
   const period = readPeriod(text)
-  const current = column(accounts, "close")
-  const previous = column(accounts, "open")
-  const income = incomeLeaves(accounts)
+  const current = column(accounts, "close", formulas)
+  const previous = column(accounts, "open", formulas)
+  const income = incomeLeaves(accounts, formulas)
   const rolledIncome = rollupIncome(income.leaves)
   const result = (rolledIncome["186"] ?? 0) - (rolledIncome["187"] ?? 0)
   const gap = (rollup(current.leaves)["001"] ?? 0) - (rollup(current.leaves)["055"] ?? 0)
@@ -65,6 +67,11 @@ export function buildStatement(text: string, sourceName: string): Statement {
     )
   }
 
+  const notes = notesFor(accounts, result !== 0 && gap === result, result > 0).filter((note) => {
+    if (!note.includes("kontu 758")) return true
+    return !accounts.some((account) => account.code.startsWith("758") && incomeOverride(account, formulas) !== null)
+  })
+
   return attachPublicFiling({
     company: readCompany(text),
     period: `${pretty(period.start)}–${pretty(period.end)}`,
@@ -73,12 +80,63 @@ export function buildStatement(text: string, sourceName: string): Statement {
     sourceName,
     balance: { current: current.leaves, previous: previous.leaves },
     income: income.leaves,
-    notes: notesFor(accounts, result !== 0 && gap === result, result > 0),
+    notes: [...notes, ...formulaNotes(accounts, formulas)],
     warnings,
   })
 }
 
-function column(accounts: Account[], field: "open" | "close") {
+export function accountRows(text: string, formulas: AccountFormula[] = []): AccountRow[] {
+  let accounts: Account[]
+  try {
+    accounts = parseAccounts(text)
+  } catch {
+    return []
+  }
+  if (accounts.length < 3) return []
+
+  const rows = new Map<string, AccountRow>()
+  for (const account of balancePostingAccounts(accounts)) {
+    const field = net(account, "close") !== 0 ? "close" : "open"
+    const suggested = standardAop(account, field) ?? class93Suggestion(account, field) ?? ""
+    const formula = matchFormula(account.code, formulas)
+    const aop = formula?.aop || suggested
+    rows.set(account.code, {
+      code: account.code,
+      name: account.name,
+      amount: displayBalance(account, field, aop || suggested),
+      aop,
+      suggested,
+      obrazec: incomeKind(aop) ? "izkaz" : "bilanca",
+      saved: Boolean(formula),
+    })
+  }
+
+  for (const account of incomePostingParts(accounts)) {
+    if (rows.has(account.code)) continue
+    const signed = account.turnDebit - account.turnCredit
+    if (signed === 0 && net(account, "close") === 0 && net(account, "open") === 0) continue
+    const suggested = resolveIncome(account.code, account.name)?.aop ?? ""
+    const formula = matchFormula(account.code, formulas)
+    const aop = formula?.aop || suggested
+    rows.set(account.code, {
+      code: account.code,
+      name: account.name,
+      amount: displayIncome(account, aop || suggested),
+      aop,
+      suggested,
+      obrazec: isBalanceLeaf(aop) && !incomeKind(aop) ? "bilanca" : "izkaz",
+      saved: Boolean(formula),
+    })
+  }
+
+  return [...rows.values()].sort((left, right) => left.code.localeCompare(right.code, "sl", { numeric: true }))
+}
+
+export function accountQuestions(text: string, formulas: AccountFormula[] = []): AccountRow[] {
+  return accountRows(text, formulas).filter((row) => !row.saved)
+}
+
+function column(accounts: Account[], field: "open" | "close", formulas: AccountFormula[]) {
   const leaves: Record<string, number> = {}
   const warnings: string[] = []
   let retained = 0
@@ -86,6 +144,11 @@ function column(accounts: Account[], field: "open" | "close") {
 
   for (const account of balancePostings(relevant, field)) {
     const netDebit = net(account, field)
+    const override = balanceOverride(account, formulas, field)
+    if (override) {
+      if (isBalanceLeaf(override)) postBalance(leaves, override, netDebit)
+      continue
+    }
     const root = account.code.slice(0, 3)
     if (root.length < 3) {
       if (netDebit !== 0) {
@@ -112,6 +175,11 @@ function column(accounts: Account[], field: "open" | "close") {
     }
     if (target.side === "liability") add(leaves, target.aop, -netDebit)
     else add(leaves, target.aop, netDebit)
+  }
+
+  for (const account of incomePostingParts(accounts)) {
+    const override = incomeOverride(account, formulas)
+    if (override && isBalanceLeaf(override)) postBalance(leaves, override, net(account, field))
   }
 
   if (retained > 0) add(leaves, "068", retained)
@@ -145,9 +213,39 @@ function partitionBalance(account: Account, all: Account[], field: "open" | "clo
   return immediate.flatMap((child) => partitionBalance(child, all, field))
 }
 
-function incomeLeaves(accounts: Account[]) {
+function incomeLeaves(accounts: Account[], formulas: AccountFormula[]) {
   const leaves: Record<string, number> = {}
   const warnings: string[] = []
+
+  for (const part of incomePostingParts(accounts)) {
+    const override = incomeOverride(part, formulas)
+    if (override) {
+      if (incomeKind(override)) postIncome(leaves, part, override)
+      continue
+    }
+    const rule = resolveIncome(part.code, part.name)
+    const signed = part.turnDebit - part.turnCredit
+    if (!rule) {
+      if (signed !== 0) {
+        warnings.push(`Konto ${part.code} ${part.name} ni razporejen v izkaz poslovnega izida.`)
+      }
+      continue
+    }
+    const movement = rule.kind === "expense" ? signed : -signed
+    if (movement !== 0) add(leaves, rule.aop, movement)
+    if (rule.interest && movement > 0) add(leaves, "167", movement)
+  }
+
+  const relevant = accounts.filter((account) => "01239".includes(account.code[0] ?? ""))
+  for (const account of balancePostings(relevant, "close")) {
+    const override = balanceOverride(account, formulas, "close")
+    if (override && incomeKind(override)) postIncome(leaves, account, override)
+  }
+
+  return { leaves, warnings }
+}
+
+function incomePostingParts(accounts: Account[]): Account[] {
   const incomeAccounts = accounts.filter(
     (account) => account.code.startsWith("4") || account.code.startsWith("7"),
   )
@@ -157,24 +255,110 @@ function incomeLeaves(accounts: Account[]) {
         (other) => account.code.startsWith(other.code) && other.code.length < account.code.length,
       ),
   )
+  return roots.flatMap((account) => partition(account, accounts))
+}
 
-  for (const account of roots) {
-    for (const part of partition(account, accounts)) {
-      const rule = resolveIncome(part.code, part.name)
-      const signed = part.turnDebit - part.turnCredit
-      if (!rule) {
-        if (signed !== 0) {
-          warnings.push(`Konto ${part.code} ${part.name} ni razporejen v izkaz poslovnega izida.`)
-        }
-        continue
-      }
-      const movement = rule.kind === "expense" ? signed : -signed
-      if (movement !== 0) add(leaves, rule.aop, movement)
-      if (rule.interest && movement > 0) add(leaves, "167", movement)
+function balancePostingAccounts(accounts: Account[]): Account[] {
+  const relevant = accounts.filter((account) => "01239".includes(account.code[0] ?? ""))
+  const found = new Map<string, Account>()
+  for (const field of ["close", "open"] as const) {
+    for (const account of balancePostings(relevant, field)) {
+      if (net(account, "open") === 0 && net(account, "close") === 0) continue
+      found.set(account.code, account)
     }
   }
+  return [...found.values()]
+}
 
-  return { leaves, warnings }
+function balanceOverride(account: Account, formulas: AccountFormula[], field: "open" | "close"): string | null {
+  const formula = matchFormula(account.code, formulas)
+  if (!formula || !isSelectableAop(formula.aop)) return null
+  if (account.code.startsWith("93") && (formula.aop === "068" || formula.aop === "069")) return null
+  const standard = standardAop(account, field)
+  if (standard && formula.aop === standard) return null
+  return formula.aop
+}
+
+function incomeOverride(account: Account, formulas: AccountFormula[]): string | null {
+  const formula = matchFormula(account.code, formulas)
+  if (!formula || !isSelectableAop(formula.aop)) return null
+  const standard = resolveIncome(account.code, account.name)?.aop
+  if (standard && formula.aop === standard) return null
+  return formula.aop
+}
+
+function standardAop(account: Account, field: "open" | "close"): string | null {
+  const netDebit = net(account, field)
+  const root = account.code.slice(0, 3)
+  if (root.length < 3 || root.startsWith("93")) return null
+  const target = balanceTarget(root)
+  if (!target) return null
+  if (target.side === "liability" && netDebit > 0 && root.startsWith("2")) return "051"
+  if ((target.aop === "059" || target.aop === "064") && netDebit <= 0) return null
+  return target.aop
+}
+
+function class93Suggestion(account: Account, field: "open" | "close"): string | null {
+  if (!account.code.startsWith("93")) return null
+  const netDebit = net(account, field)
+  if (netDebit > 0) return "069"
+  if (netDebit < 0) return "068"
+  return null
+}
+
+function postBalance(leaves: Record<string, number>, aop: string, netDebit: number) {
+  const line = LINE_BY_AOP[aop]
+  if (!line || netDebit === 0) return
+  if (line.deductible) {
+    if (netDebit > 0) add(leaves, aop, netDebit)
+    return
+  }
+  if (line.side === "viri") add(leaves, aop, -netDebit)
+  else add(leaves, aop, netDebit)
+}
+
+function postIncome(leaves: Record<string, number>, account: Account, aop: string) {
+  const kind = incomeKind(aop)
+  if (!kind) return
+  const turn = account.turnDebit - account.turnCredit
+  const signed = turn !== 0 ? turn : net(account, "close")
+  const movement = kind === "expense" ? signed : -signed
+  if (movement !== 0) add(leaves, aop, movement)
+  if (postsInterestMemo(aop, account.name) && movement > 0) add(leaves, "167", movement)
+}
+
+function displayBalance(account: Account, field: "open" | "close", aop: string): number {
+  const netDebit = net(account, field)
+  const line = LINE_BY_AOP[aop]
+  if (!line) return netDebit
+  if (line.deductible) return netDebit
+  if (line.side === "viri") return -netDebit
+  return netDebit
+}
+
+function displayIncome(account: Account, aop: string): number {
+  const turn = account.turnDebit - account.turnCredit
+  const signed = turn !== 0 ? turn : net(account, "close")
+  return incomeKind(aop) === "revenue" ? -signed : signed
+}
+
+function formulaNotes(accounts: Account[], formulas: AccountFormula[]): string[] {
+  const notes: string[] = []
+  const seen = new Set<string>()
+  for (const account of balancePostingAccounts(accounts)) {
+    const field = net(account, "close") !== 0 ? "close" : "open"
+    const override = balanceOverride(account, formulas, field)
+    if (!override) continue
+    seen.add(account.code)
+    notes.push(`Konto ${account.code} ${account.name} je po formuli stranke na AOP ${override}.`)
+  }
+  for (const account of incomePostingParts(accounts)) {
+    if (seen.has(account.code)) continue
+    const override = incomeOverride(account, formulas)
+    if (!override) continue
+    notes.push(`Konto ${account.code} ${account.name} je po formuli stranke na AOP ${override}.`)
+  }
+  return notes
 }
 
 function partition(account: Account, all: Account[]): Account[] {

@@ -162,3 +162,35 @@ export function rollupIncome(leaves: Record<string, number>): Record<string, num
   values["187"] = net < 0 ? -net : 0
   return values
 }
+
+const INCOME_MEMO = new Set(["154", "167"])
+const INCOME_RESULT = new Set(["151", "152", "182", "183", "186", "187"])
+const REVENUE_AOPS = new Set([
+  "112",
+  "113",
+  "114",
+  "116",
+  "117",
+  "119",
+  "120",
+  "121",
+  "123",
+  "124",
+  "125",
+  "179",
+  "180",
+])
+
+/** List izkaza, na katerega sme pasti konto. Seštevki in že vključene postavke niso med njimi. */
+export function incomeKind(aop: string): "expense" | "revenue" | null {
+  if (aop in FORMULAS || INCOME_MEMO.has(aop) || INCOME_RESULT.has(aop)) return null
+  if (!INCOME_LINES.some((line) => line.aop === aop)) return null
+  return REVENUE_AOPS.has(aop) ? "revenue" : "expense"
+}
+
+/** Obresti, ki so že v odhodku, se prikažejo še na AOP 167. */
+export function postsInterestMemo(aop: string, name: string): boolean {
+  if (aop === "176") return true
+  if (aop === "170" || aop === "171" || aop === "172") return /obrest/i.test(name)
+  return false
+}

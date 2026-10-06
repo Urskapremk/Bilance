@@ -4,8 +4,10 @@ import { Archive, ArrowLeft, FileDown, FileUp, Printer, Save, UserPlus } from "l
 import Image from "next/image"
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react"
 
+import { FormulaDialog } from "@/components/formula-dialog"
 import { PdfPreview } from "@/components/pdf-preview"
 import { StatementDocument } from "@/components/statement-document"
+import type { AccountFormula, AccountRow } from "@/lib/account-map"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -41,6 +43,13 @@ import { grafam, mappingNotes } from "@/lib/grafam"
 import type { Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
+type ParsedTrial = {
+  statement: Statement
+  vprasanja: AccountRow[]
+  konti: AccountRow[]
+  error?: string
+}
+
 type View = "bilanca" | "izkaz"
 
 type Workspace = {
@@ -48,6 +57,7 @@ type Workspace = {
   pdf: ArrayBuffer
   pdfName: string
   phase: "primer" | "osnutek" | "arhiv"
+  konti: AccountRow[]
 }
 
 const DEFAULT_PDF = "/sources/Grafam_BB_31.08.2026.pdf"
@@ -96,12 +106,19 @@ export function BilanceApp() {
   const [newClientFile, setNewClientFile] = useState<File | null>(null)
   const [newClientError, setNewClientError] = useState<string | null>(null)
   const [creatingClient, setCreatingClient] = useState(false)
+  const [konti, setKonti] = useState<AccountRow[]>([])
+  const [formulaOpen, setFormulaOpen] = useState(false)
+  const [formulaRows, setFormulaRows] = useState<AccountRow[]>([])
+  const [formulaMode, setFormulaMode] = useState<"nova" | "vse">("nova")
+  const [formulaError, setFormulaError] = useState<string | null>(null)
+  const [savingFormulas, setSavingFormulas] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const newFileRef = useRef<HTMLInputElement>(null)
   const pdfUrlRef = useRef(pdfUrl)
   const draftRef = useRef<{ statement: Statement; pdf: ArrayBuffer } | null>(null)
   const savingRef = useRef(false)
   const uploadClientRef = useRef<string | null>(null)
+  const fileRef = useRef<File | null>(null)
   const workspaces = useRef(new Map<string, Workspace>())
 
   useEffect(() => {
@@ -164,6 +181,8 @@ export function BilanceApp() {
     setBlank(false)
     setLinked(true)
     setError(null)
+    setKonti([])
+    setFormulaOpen(false)
     draftRef.current = null
     setSaveAsk(false)
   }
@@ -176,6 +195,8 @@ export function BilanceApp() {
     setBlank(false)
     setLinked(true)
     setError(null)
+    setKonti(workspace.konti)
+    setFormulaOpen(false)
     draftRef.current =
       workspace.phase === "osnutek" ? { statement: workspace.statement, pdf: workspace.pdf } : null
     setSaveAsk(false)
@@ -189,6 +210,12 @@ export function BilanceApp() {
     }
   }
 
+  function filingName(company?: string): string | undefined {
+    if (company) return company
+    if (phase === "primer") return undefined
+    return activeClient
+  }
+
   async function loadFile(file: File, company?: string): Promise<boolean> {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       const message = "Dodajte datoteko PDF."
@@ -196,6 +223,7 @@ export function BilanceApp() {
       else setError(message)
       return false
     }
+    const namedCompany = filingName(company)
     const nextUrl = URL.createObjectURL(file)
     setPdfUrl((current) => {
       if (current.startsWith("blob:")) URL.revokeObjectURL(current)
@@ -207,18 +235,21 @@ export function BilanceApp() {
     try {
       const body = new FormData()
       body.set("file", file)
+      if (namedCompany) body.set("company", namedCompany)
       const response = await fetch("/api/bruto-bilanca", { method: "POST", body })
-      const data = (await response.json().catch(() => null)) as Statement & { error?: string } | null
-      if (!response.ok || !data || !data.company) {
+      const data = (await response.json().catch(() => null)) as ParsedTrial | null
+      if (!response.ok || !data?.statement?.company) {
         throw new Error(data?.error ?? "Bruto bilance ni bilo mogoče prebrati.")
       }
       const pdf = (await file.arrayBuffer()).slice(0)
-      const named = company ? statementForClient(data, company) : data
+      const named = namedCompany ? statementForClient(data.statement, namedCompany) : data.statement
       const draft = { statement: named, pdf }
       draftRef.current = draft
-      cacheWorkspace({ statement: named, pdf, pdfName: file.name, phase: "osnutek" })
+      fileRef.current = file
+      cacheWorkspace({ statement: named, pdf, pdfName: file.name, phase: "osnutek", konti: data.konti ?? [] })
       setStatement(named)
       setActiveClient(named.company)
+      setKonti(data.konti ?? [])
       setBlank(false)
       setLinked(true)
       setPhase("osnutek")
@@ -229,6 +260,14 @@ export function BilanceApp() {
       setNewClientFile(null)
       setNewClientError(null)
       setSaveAsk(false)
+      if ((data.vprasanja ?? []).length > 0) {
+        setFormulaMode("nova")
+        setFormulaRows(data.vprasanja)
+        setFormulaError(null)
+        setFormulaOpen(true)
+      } else {
+        setFormulaOpen(false)
+      }
       showView("bilanca")
       requestAnimationFrame(() => {
         document.querySelector("article.print-sheet, section.print-sheet")?.scrollIntoView({ block: "start" })
@@ -247,6 +286,29 @@ export function BilanceApp() {
       return false
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function rememberFormulas(formule: AccountFormula[]) {
+    const file = fileRef.current
+    const name = statement.company
+    if (!name) return
+    setSavingFormulas(true)
+    setFormulaError(null)
+    try {
+      const response = await fetch("/api/formule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: name, formule }),
+      })
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null
+      if (!response.ok) throw new Error(payload?.error ?? "Formul ni bilo mogoče shraniti.")
+      setFormulaOpen(false)
+      if (file) await loadFile(file, name)
+    } catch (caught) {
+      setFormulaError(caught instanceof Error ? caught.message : "Formul ni bilo mogoče shraniti.")
+    } finally {
+      setSavingFormulas(false)
     }
   }
 
@@ -281,6 +343,8 @@ export function BilanceApp() {
     }
     setActiveClient(name)
     setBlank(true)
+    setKonti([])
+    setFormulaOpen(false)
     setLinked(false)
     setError(null)
     setPhase("osnutek")
@@ -338,6 +402,7 @@ export function BilanceApp() {
         pdf: draft.pdf,
         pdfName: draft.statement.sourceName,
         phase: "arhiv",
+        konti,
       })
       void refreshClients()
       draftRef.current = null
@@ -375,7 +440,10 @@ export function BilanceApp() {
         pdf: stored.pdf,
         pdfName: stored.sourceName,
         phase: "arhiv",
+        konti: [],
       })
+      setKonti([])
+      setFormulaOpen(false)
       setLinked(true)
       setBlank(false)
       setPhase("arhiv")
@@ -566,7 +634,7 @@ export function BilanceApp() {
                   ? phase === "arhiv"
                     ? "Shranjeno v arhiv. Obrazec je sestavljen iz te bruto bilance."
                     : phase === "osnutek"
-                      ? "Najprej preglejte bilanco. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
+                      ? "Najprej preglejte bilanco. Novi konti vprašajo, v kateri AOP gredo, in se za to stranko zapomnijo. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
                       : "Obrazec je sestavljen iz tega izpisa. Tukaj ostane, da ga lahko primerjate s postavkami."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
@@ -610,6 +678,21 @@ export function BilanceApp() {
                 <Archive />
                 Arhiv{archiveItems.length > 0 ? ` (${archiveItems.length})` : ""}
               </Button>
+              {konti.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || savingFormulas}
+                  onClick={() => {
+                    setFormulaMode("vse")
+                    setFormulaRows(konti)
+                    setFormulaError(null)
+                    setFormulaOpen(true)
+                  }}
+                >
+                  Formule
+                </Button>
+              ) : null}
             </div>
             {error ? (
               <p className="mt-3 text-sm text-destructive" role="alert">
@@ -794,6 +877,17 @@ export function BilanceApp() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FormulaDialog
+        open={formulaOpen}
+        company={statement.company}
+        rows={formulaRows}
+        mode={formulaMode}
+        busy={savingFormulas}
+        error={formulaError}
+        onOpenChange={setFormulaOpen}
+        onConfirm={(formule) => void rememberFormulas(formule)}
+      />
 
       <Dialog
         open={newClientOpen}
