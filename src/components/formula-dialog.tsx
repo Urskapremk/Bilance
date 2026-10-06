@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { X } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { createPortal } from "react-dom"
 
 import { AOP_CHOICES, isSelectableAop, type AccountFormula, type AccountRow } from "@/lib/account-map"
 import { formatCents } from "@/lib/format"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
@@ -16,7 +17,6 @@ export function FormulaDialog({
   mode,
   busy,
   error,
-  embedded = false,
   onOpenChange,
   onConfirm,
   onPreview,
@@ -27,50 +27,88 @@ export function FormulaDialog({
   mode: "nova" | "vse"
   busy: boolean
   error: string | null
-  embedded?: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: (formule: AccountFormula[]) => void
   onPreview?: (choices: Record<string, string>) => void
 }) {
-  const form = open ? (
-    <FormulaForm
-      key={`${company}:${mode}:${rows.map((row) => row.code).join(",")}`}
-      company={company}
-      rows={rows}
-      busy={busy}
-      error={error}
-      onClose={() => onOpenChange(false)}
-      onConfirm={onConfirm}
-      onPreview={onPreview}
-    />
-  ) : null
+  const panel = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ dx: number; dy: number } | null>(null)
+  const [pos, setPos] = useState({ x: 16, y: 16 })
 
-  if (embedded) {
-    if (!open) return null
-    return <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border">{form}</div>
+  useEffect(() => {
+    if (!open) return
+    const width = Math.min(560, window.innerWidth - 24)
+    setPos({ x: Math.max(12, window.innerWidth - width - 16), y: 16 })
+  }, [open])
+
+  if (!open || typeof document === "undefined") return null
+
+  function clamp(x: number, y: number) {
+    const width = panel.current?.offsetWidth ?? 320
+    return {
+      x: Math.min(window.innerWidth - 72, Math.max(16 - width, x)),
+      y: Math.min(window.innerHeight - 48, Math.max(8, y)),
+    }
   }
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (busy) return
-        onOpenChange(next)
-      }}
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (busy) return
+    if ((event.target as HTMLElement).closest("button")) return
+    const rect = panel.current?.getBoundingClientRect()
+    if (!rect) return
+    drag.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!drag.current) return
+    setPos(clamp(event.clientX - drag.current.dx, event.clientY - drag.current.dy))
+  }
+
+  function onPointerUp() {
+    drag.current = null
+  }
+
+  return createPortal(
+    <div
+      ref={panel}
+      role="dialog"
+      aria-label="Kam gre konto?"
+      className="fixed z-40 flex max-h-[min(640px,calc(100vh-2rem))] w-[min(560px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+      style={{ left: pos.x, top: pos.y }}
     >
-      <DialogContent
-        className="sm:max-w-2xl"
-        showCloseButton={!busy}
-        onPointerDownOutside={(event) => {
-          if (busy) event.preventDefault()
-        }}
-        onEscapeKeyDown={(event) => {
-          if (busy) event.preventDefault()
-        }}
+      <div
+        className="flex cursor-grab touch-none items-start justify-between gap-3 border-b border-border px-5 py-3 select-none active:cursor-grabbing"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
       >
-        {open ? <div className="flex max-h-[min(560px,calc(100vh-6rem))] min-h-0 flex-col gap-4">{form}</div> : null}
-      </DialogContent>
-    </Dialog>
+        <div>
+          <p className="text-xs font-medium tracking-[0.16em] text-gold uppercase">Primite in premaknite</p>
+          <h2 className="font-heading text-2xl font-semibold text-navy">Kam gre konto?</h2>
+        </div>
+        <button
+          type="button"
+          className="rounded-md p-1 text-navy hover:bg-secondary"
+          aria-label="Zapri"
+          disabled={busy}
+          onClick={() => onOpenChange(false)}
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <FormulaForm
+        key={`${company}:${mode}:${rows.map((row) => row.code).join(",")}`}
+        company={company}
+        rows={rows}
+        busy={busy}
+        error={error}
+        onClose={() => onOpenChange(false)}
+        onConfirm={onConfirm}
+        onPreview={onPreview}
+      />
+    </div>,
+    document.body,
   )
 }
 
@@ -139,13 +177,10 @@ function FormulaForm({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5">
-      <div className="space-y-2">
-        <h2 className="font-heading text-2xl font-semibold text-navy">Pravila</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Bilanca {company} je odprta levo. Določite, v kateri AOP gre konto, na primer 9831 na AOP 090. Popravek se
-          takoj pokaže na obrazcu.
-        </p>
-      </div>
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Primite naslov in premaknite okno, da spodaj vidite bilanco {company}. Določite, v kateri AOP gre konto, na
+        primer 9831 na AOP 090. Popravek se takoj pokaže na obrazcu.
+      </p>
       <div className="space-y-2">
         <Label htmlFor="isci-konto">Poišči konto</Label>
         <Input

@@ -849,7 +849,7 @@ export function BilanceApp() {
                   ? phase === "arhiv"
                     ? "Shranjeno v arhiv. Obrazec je sestavljen iz te bruto bilance."
                     : phase === "osnutek"
-                      ? "Bilanca je naložena. Najprej jo preglejte. Pravila za konte določite z gumbom Pravila, obrazec pri tem ostane odprt. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
+                      ? "Bilanca je naložena. Najprej jo preglejte. Pravila odprejo okno, ki ga primete za naslov in premaknete, da vidite bilanco. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
                       : "Obrazec je sestavljen iz tega izpisa. Popravek zneska v tekočem letu se na njem pokaže takoj."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
@@ -922,27 +922,27 @@ export function BilanceApp() {
               </p>
             ) : null}
           </div>
-          {formulaOpen ? null : blank ? (
+          {blank ? (
             <div className="flex flex-1 items-center justify-center p-8 text-center text-sm leading-relaxed text-muted-foreground">
               Bruto bilanca za {activeClient} se pokaže tukaj, ko dodate PDF.
             </div>
           ) : (
             <PdfPreview url={pdfUrl} title={`Bruto bilanca ${pdfName}`} />
           )}
-          <FormulaDialog
-            embedded
-            open={formulaOpen}
-            company={statement.company}
-            rows={formulaRows}
-            mode={formulaMode}
-            busy={savingFormulas}
-            error={formulaError}
-            onOpenChange={setFormulaOpen}
-            onConfirm={(formule) => void rememberFormulas(formule)}
-            onPreview={(choices) => previewChoices(formulaRows, choices)}
-          />
         </aside>
       </div>
+
+      <FormulaDialog
+        open={formulaOpen}
+        company={statement.company}
+        rows={formulaRows}
+        mode={formulaMode}
+        busy={savingFormulas}
+        error={formulaError}
+        onOpenChange={setFormulaOpen}
+        onConfirm={(formule) => void rememberFormulas(formule)}
+        onPreview={(choices) => previewChoices(formulaRows, choices)}
+      />
 
       <Dialog
         open={saveAsk || savedMeta !== null}
