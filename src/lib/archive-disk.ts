@@ -68,17 +68,17 @@ export async function listArchiveFiles(): Promise<ArchiveMeta[]> {
 export async function replaceArchiveStatement(id: string, statement: Statement): Promise<ArchiveMeta> {
   const dir = entryDir(id)
   const meta = JSON.parse(await readFile(path.join(dir, "meta.json"), "utf8")) as ArchiveMeta
-  const next: ArchiveMeta = {
-    ...meta,
-    savedAt: new Date().toISOString(),
-    forms: meta.forms?.length ? meta.forms : [...PERIOD_FORMS],
-  }
   const stored: Statement = {
     ...statement,
     company: meta.company,
-    period: meta.period,
-    currentDate: meta.currentDate,
     sourceName: meta.sourceName,
+  }
+  const next: ArchiveMeta = {
+    ...meta,
+    savedAt: new Date().toISOString(),
+    period: stored.period,
+    currentDate: stored.currentDate,
+    forms: meta.forms?.length ? meta.forms : [...PERIOD_FORMS],
   }
   await writeFile(path.join(dir, "meta.json"), JSON.stringify(next))
   await writeFile(path.join(dir, "statement.json"), JSON.stringify(stored))

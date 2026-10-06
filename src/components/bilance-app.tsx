@@ -374,7 +374,7 @@ export function BilanceApp() {
     const formule = formulasForEditor(formulasRef.current, rows, choices)
     try {
       const parsed = trialFromText(text, pdfNameRef.current || "bruto-bilanca.pdf", formule)
-      const named = statementForClient(parsed.statement, activeClientRef.current || parsed.statement.company)
+      const named = keepStatementDates(statementForClient(parsed.statement, activeClientRef.current || parsed.statement.company))
       formulasRef.current = formule
       statementRef.current = named
       setStatement(named)
@@ -394,6 +394,31 @@ export function BilanceApp() {
     setChecks(next)
     const scope = checkScope.current
     void writeChecks(scope.company, scope.period, next).catch(() => undefined)
+  }
+
+  function keepStatementDates(next: Statement): Statement {
+    const current = statementRef.current
+    return {
+      ...next,
+      period: current.period,
+      currentDate: current.currentDate,
+      previousDate: current.previousDate,
+    }
+  }
+
+  function editPeriod(start: string, end: string) {
+    const current = statementRef.current
+    const period = `${start}–${end}`
+    if (current.period === period && current.currentDate === end) return
+    const next = { ...current, period, currentDate: end }
+    statementRef.current = next
+    setStatement(next)
+    if (current.period !== period) {
+      checkScope.current = { company: next.company, period }
+      void writeChecks(next.company, period, checks).catch(() => undefined)
+    }
+    rememberWorkspace(next)
+    persistOpenStatement(next)
   }
 
   function editAmount(obrazec: "bilanca" | "izkaz", aop: string, cents: number) {
@@ -593,7 +618,7 @@ export function BilanceApp() {
       }
       if (textRef.current) {
         const parsed = trialFromText(textRef.current, pdfNameRef.current || "bruto-bilanca.pdf", full)
-        const named = statementForClient(parsed.statement, name)
+        const named = keepStatementDates(statementForClient(parsed.statement, name))
         statementRef.current = named
         setStatement(named)
         setKonti(parsed.konti)
@@ -704,7 +729,7 @@ export function BilanceApp() {
   }
 
   function askToSave() {
-    if (!draftRef.current || savingRef.current) return
+    if (savingRef.current || phaseRef.current === "primer" || !openPdf()) return
     setSaveError(null)
     setSaveAsk(true)
   }
@@ -718,23 +743,28 @@ export function BilanceApp() {
   async function confirmFinal(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault()
     event.stopPropagation()
-    const draft = draftRef.current
-    if (!draft || savingRef.current) return
+    const pdf = openPdf()
+    const current = statementRef.current
+    if (!pdf || savingRef.current) return
     savingRef.current = true
     setSavingArchive(true)
     setSaveError(null)
     setError(null)
     try {
-      const meta = await saveArchive(draft.statement, draft.pdf.slice(0))
+      const meta =
+        phaseRef.current === "arhiv" && archiveIdRef.current
+          ? await updateArchive(archiveIdRef.current, current)
+          : await saveArchive(current, pdf.slice(0))
+      if (!meta) throw new Error("Shranjene bilance ni bilo mogoče zapisati.")
       setArchiveItems(await listArchive())
       archiveIdRef.current = meta.id
-      archivePdfRef.current = draft.pdf.slice(0)
+      archivePdfRef.current = pdf.slice(0)
       phaseRef.current = "arhiv"
       setPhase("arhiv")
       cacheWorkspace({
-        statement: draft.statement,
-        pdf: draft.pdf,
-        pdfName: draft.statement.sourceName,
+        statement: current,
+        pdf,
+        pdfName: current.sourceName,
         phase: "arhiv",
         konti,
         besedilo: textRef.current,
@@ -875,7 +905,7 @@ export function BilanceApp() {
         >
           {showZeros ? "Skrij prazne postavke" : "Prikaži celotno shemo AJPES"}
         </button>
-        {phase === "osnutek" && !blank ? (
+        {phase !== "primer" && !blank ? (
           <Button type="button" onClick={askToSave} disabled={savingArchive || busy}>
             <Save />
             Shrani
@@ -965,6 +995,7 @@ export function BilanceApp() {
             toolbar={toolbar}
             busy={busy}
             onEdit={editAmount}
+            onPeriod={editPeriod}
             checks={new Set(checks)}
             onToggleCheck={toggleCheck}
           />
@@ -1006,9 +1037,9 @@ export function BilanceApp() {
                 ? "Nova stranka čaka na svojo bruto bilanco. Dodajte PDF ali jo ustvarite z Nova stranka."
                 : linked
                   ? phase === "arhiv"
-                    ? "Shranjeno obdobje. Znesek tekočega leta popravite v vrstici. Popravek se takoj vidi in zapiše v to shranjeno obdobje."
+                    ? "Shranjeno obdobje. Obdobje vpišite v polji Od in Do. Znesek tekočega leta popravite v vrstici. Shrani zapiše to bilanco, takšno kot je zdaj."
                     : phase === "osnutek"
-                      ? "Bilanca je naložena. Najprej jo preglejte. Pravila odprejo okno, ki ga primete za naslov in premaknete, da vidite bilanco. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
+                      ? "Bilanca je naložena. Obdobje vpišite v polji Od in Do. Najprej jo preglejte. Pravila odprejo okno, ki ga primete za naslov in premaknete, da vidite bilanco. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
                       : "Obrazec je sestavljen iz tega izpisa. Popravek zneska v tekočem letu se na njem pokaže takoj."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>

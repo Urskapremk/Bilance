@@ -132,16 +132,14 @@ export async function readDraft(company: string): Promise<ClientDraft | null> {
   return draft
 }
 
-/** Obdrži družbo, obdobje in izvor shranjenega zapisa, zneske pa zamenja. */
+/** Obdrži družbo in izvor shranjenega zapisa. Obdobje in zneski pridejo iz popravljene bilance. */
 export function pinStoredStatement(
-  period: Pick<StoredPeriod, "company" | "period" | "currentDate" | "sourceName">,
+  period: Pick<StoredPeriod, "company" | "sourceName">,
   statement: Statement,
 ): Statement {
   return {
     ...statement,
     company: period.company,
-    period: period.period,
-    currentDate: period.currentDate,
     sourceName: period.sourceName,
   }
 }
@@ -158,10 +156,13 @@ export async function updateStoredPeriod(id: string, statement: Statement): Prom
     db.close()
     return null
   }
+  const pinned = pinStoredStatement(period, statement)
   const next: StoredPeriod = {
     ...period,
     savedAt: new Date().toISOString(),
-    statement: pinStoredStatement(period, statement),
+    period: pinned.period,
+    currentDate: pinned.currentDate,
+    statement: pinned,
   }
   await put(db, "obdobja", next)
   db.close()

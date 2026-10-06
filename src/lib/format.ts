@@ -30,6 +30,28 @@ export function parseCents(raw: string, allowNegative = true): number | null {
   return amount
 }
 
+/** Slovenski datum v obliki 1. 1. 2026. Sprejme tudi 01.01.2026. */
+export function parseSloveneDate(raw: string): string | null {
+  const match = raw.trim().match(/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})$/)
+  if (!match?.[1] || !match[2] || !match[3]) return null
+  const day = Number(match[1])
+  const month = Number(match[2])
+  const year = Number(match[3])
+  if (!day || !month || month > 12 || day > 31 || year < 1900) return null
+  const probe = new Date(Date.UTC(year, month - 1, day))
+  if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return null
+  return `${day}. ${month}. ${year}`
+}
+
+export function splitPeriod(period: string): { start: string; end: string } | null {
+  const parts = period.split(/\s*[–-]\s*/)
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null
+  const start = parseSloveneDate(parts[0])
+  const end = parseSloveneDate(parts[1])
+  if (!start || !end) return null
+  return { start, end }
+}
+
 /** Cela števila v eurih. Pike in presledki so ločila tisočic, vejica je decimalno ločilo. */
 export function parseEur(raw: string, allowNegative: boolean): number | null {
   const trimmed = raw.trim()

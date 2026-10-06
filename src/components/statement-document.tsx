@@ -3,8 +3,10 @@
 import Image from "next/image"
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { rollup, reviewColumn } from "@/lib/compute"
-import { formatCents, parseCents } from "@/lib/format"
+import { formatCents, parseCents, parseSloveneDate, splitPeriod } from "@/lib/format"
 import { INCOME_LINES, incomeKind, rollupIncome, type IncomeLine } from "@/lib/income"
 import { LINES, descendantLeaves, isCalculated, type LineDef } from "@/lib/schema"
 import type { Statement } from "@/lib/trial"
@@ -17,6 +19,7 @@ export function StatementDocument({
   toolbar,
   busy = false,
   onEdit,
+  onPeriod,
   checks,
   onToggleCheck,
 }: {
@@ -26,6 +29,7 @@ export function StatementDocument({
   toolbar?: ReactNode
   busy?: boolean
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
+  onPeriod?: (start: string, end: string) => void
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
@@ -83,6 +87,7 @@ export function StatementDocument({
                 Obdobje {statement.period}. Stanje na dan {statement.currentDate}. Prikazano je samo tekoče leto. Znesek
                 popravite v vrstici, seštevki se osvežijo takoj. Zneski v evrih.
               </p>
+              {onPeriod ? <PeriodFields period={statement.period} onCommit={onPeriod} /> : null}
             </div>
             <p
               className={cn(
@@ -378,6 +383,65 @@ function StatementRow({
         )}
       </td>
     </tr>
+  )
+}
+
+function PeriodFields({ period, onCommit }: { period: string; onCommit: (start: string, end: string) => void }) {
+  const parts = splitPeriod(period)
+  const [start, setStart] = useState(parts?.start ?? "")
+  const [end, setEnd] = useState(parts?.end ?? "")
+
+  useEffect(() => {
+    const next = splitPeriod(period)
+    if (!next) return
+    setStart(next.start)
+    setEnd(next.end)
+  }, [period])
+
+  function commit(nextStart: string, nextEnd: string) {
+    const parsedStart = parseSloveneDate(nextStart)
+    const parsedEnd = parseSloveneDate(nextEnd)
+    if (!parsedStart || !parsedEnd) {
+      const back = splitPeriod(period)
+      setStart(back?.start ?? "")
+      setEnd(back?.end ?? "")
+      return
+    }
+    setStart(parsedStart)
+    setEnd(parsedEnd)
+    const current = splitPeriod(period)
+    if (current?.start === parsedStart && current.end === parsedEnd) return
+    onCommit(parsedStart, parsedEnd)
+  }
+
+  return (
+    <div className="no-print mt-4">
+      <p className="text-sm text-navy">Vpišite začetek in konec obdobja bilance.</p>
+      <div className="mt-2 flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="obdobje-od">Od</Label>
+          <Input
+            id="obdobje-od"
+            value={start}
+            placeholder="01.01.2026"
+            className="w-36"
+            onChange={(event) => setStart(event.target.value)}
+            onBlur={() => commit(start, end)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="obdobje-do">Do</Label>
+          <Input
+            id="obdobje-do"
+            value={end}
+            placeholder="31.08.2026"
+            className="w-36"
+            onChange={(event) => setEnd(event.target.value)}
+            onBlur={() => commit(start, end)}
+          />
+        </div>
+      </div>
+    </div>
   )
 }
 

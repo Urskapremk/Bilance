@@ -11,7 +11,7 @@ test("vsaka stranka dobi svojo bazo", () => {
   assert.match(clientDatabaseName("BLIŠČ d.o.o."), /^bilance-blišč d\.o\.o\.$/u)
 })
 
-test("popravek shranjenega obdobja obdrži stranko in obdobje", () => {
+test("popravek shranjenega obdobja obdrži stranko in sprejme novo obdobje", () => {
   const stored: Statement = {
     company: "ADREMA d.o.o.",
     period: "1. 1. 2026–31. 8. 2026",
@@ -28,11 +28,14 @@ test("popravek shranjenega obdobja obdrži stranko in obdobje", () => {
     {
       ...stored,
       company: "Druga d.o.o.",
-      period: "drugo obdobje",
+      period: "1. 1. 2026–31. 8. 2026",
+      currentDate: "31. 8. 2026",
       balance: { current: { "001": 250 }, previous: {} },
     },
   )
   assert.equal(corrected.company, "ADREMA d.o.o.")
+  assert.equal(corrected.sourceName, "adrema.pdf")
   assert.equal(corrected.period, "1. 1. 2026–31. 8. 2026")
+  assert.equal(corrected.currentDate, "31. 8. 2026")
   assert.equal(corrected.balance.current["001"], 250)
 })

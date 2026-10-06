@@ -32,14 +32,19 @@ test("končna bilanca se zapiše na disk in se prebere nazaj", async () => {
     const replaced = await replaceArchiveStatement(meta.id, {
       ...statement,
       company: "Druga d.o.o.",
+      period: "1. 1. 2026–30. 6. 2026",
+      currentDate: "30. 6. 2026",
       balance: { current: { "070": 1200 }, previous: {} },
     })
     assert.equal(replaced.company, "GRAFAM d.o.o.")
+    assert.equal(replaced.period, "1. 1. 2026–30. 6. 2026")
+    assert.equal(replaced.currentDate, "30. 6. 2026")
     assert.equal(replaced.id, meta.id)
     const corrected = await readArchiveStatement(meta.id)
     assert.equal(corrected.balance.current["070"], 1200)
     assert.equal(corrected.company, "GRAFAM d.o.o.")
-    assert.equal(corrected.period, statement.period)
+    assert.equal(corrected.period, "1. 1. 2026–30. 6. 2026")
+    assert.equal(corrected.currentDate, "30. 6. 2026")
   } finally {
     await rm(path.join(process.cwd(), "data", "arhiv", meta.id), { recursive: true, force: true })
   }
