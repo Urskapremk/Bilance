@@ -29,7 +29,7 @@ import {
   type ArchiveMeta,
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
-import { readDraft, readStoredFormulas, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients } from "@/lib/browser-book"
+import { readDraft, readLastPlace, readStoredFormulas, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeLastPlace } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
   clientKey,
@@ -116,6 +116,7 @@ export function BilanceApp() {
   const [formulaMode, setFormulaMode] = useState<"nova" | "vse">("nova")
   const [formulaError, setFormulaError] = useState<string | null>(null)
   const [savingFormulas, setSavingFormulas] = useState(false)
+  const [opened, setOpened] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const newFileRef = useRef<HTMLInputElement>(null)
   const pdfUrlRef = useRef(pdfUrl)
@@ -133,6 +134,7 @@ export function BilanceApp() {
   const sampleKontiRef = useRef<AccountRow[]>([])
   const sampleTextRef = useRef("")
   const persistTimer = useRef<number | null>(null)
+  const archiveIdRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
     pdfUrlRef.current = pdfUrl
@@ -180,6 +182,7 @@ export function BilanceApp() {
   }, [])
 
   useEffect(() => {
+    if (!opened || phase !== "primer") return
     let cancel = false
     void (async () => {
       if (textRef.current) return
@@ -199,6 +202,58 @@ export function BilanceApp() {
         setKonti(data.konti ?? [])
       } catch {
         /* vzorec ostane brez preračuna formul */
+      }
+    })()
+    return () => {
+      cancel = true
+    }
+  }, [opened, phase])
+
+  useEffect(() => {
+    if (!opened) return
+    void writeLastPlace({
+      company: activeClient,
+      phase,
+      archiveId: phase === "arhiv" ? archiveIdRef.current : undefined,
+    }).catch(() => undefined)
+  }, [opened, activeClient, phase])
+
+  useEffect(() => {
+    let cancel = false
+    void (async () => {
+      try {
+        const place = await readLastPlace().catch(() => null)
+        if (cancel) return
+        if (!place || place.phase === "primer" || sameClient(place.company, SAMPLE_CLIENT)) return
+        if (place.phase === "arhiv" && place.archiveId) {
+          archiveIdRef.current = place.archiveId
+          const openedArchive = await openArchived(place.archiveId)
+          if (openedArchive || cancel) return
+        }
+        const draft = await readDraft(place.company).catch(() => null)
+        if (cancel) return
+        if (draft?.statement && draft.pdf) {
+          setError(null)
+          setArchiveError(null)
+          textRef.current = draft.besedilo ?? ""
+          applyWorkspace({
+            statement: draft.statement,
+            pdf: draft.pdf,
+            pdfName: draft.pdfName,
+            phase: "osnutek",
+            konti: draft.konti ?? [],
+            besedilo: draft.besedilo ?? "",
+          })
+          if (!draft.besedilo) void hydrateText(draft.pdf, draft.pdfName)
+          return
+        }
+        setActiveClient(place.company)
+        setBlank(true)
+        setPhase("osnutek")
+        setLinked(false)
+        setKonti([])
+      } finally {
+        if (!cancel) setOpened(true)
       }
     })()
     return () => {
@@ -631,7 +686,7 @@ export function BilanceApp() {
     }
   }
 
-  async function openArchived(id: string) {
+  async function openArchived(id: string): Promise<boolean> {
     setArchiveError(null)
     setBusy(true)
     try {
@@ -640,6 +695,7 @@ export function BilanceApp() {
       showPdf(nextUrl, stored.sourceName)
       setStatement(stored.statement)
       setActiveClient(stored.statement.company)
+      archiveIdRef.current = id
       textRef.current = ""
       cacheWorkspace({
         statement: stored.statement,
@@ -659,10 +715,12 @@ export function BilanceApp() {
       setSaveAsk(false)
       setSavedMeta(null)
       setArchiveOpen(false)
+      return true
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Končne bilance ni bilo mogoče odpreti."
       setArchiveError(message)
       setError(message)
+      return false
     } finally {
       setBusy(false)
     }
@@ -754,6 +812,25 @@ export function BilanceApp() {
       </div>
     </div>
   )
+
+  if (!opened) {
+    return (
+      <div className="min-h-svh bg-background">
+        <div className="no-print border-b border-border">
+          <div className="mx-auto flex max-w-[1440px] px-4 py-3 lg:px-6">
+            <a
+              href="https://hnatura.app"
+              className="inline-flex items-center gap-2 text-sm font-medium text-navy underline-offset-4 hover:text-gold hover:underline"
+            >
+              <ArrowLeft className="size-4" />
+              Programi
+            </a>
+          </div>
+        </div>
+        <p className="font-heading px-6 py-24 text-center text-3xl font-semibold text-navy">Odpiram zadnjo bilanco.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-svh bg-background">

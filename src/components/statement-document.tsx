@@ -28,7 +28,10 @@ export function StatementDocument({
   const current = rollup(statement.balance.current)
   const income = rollupIncome(statement.income)
   const issues = reviewColumn(current, statement.currentDate)
-  const balanced = issues.every((issue) => issue.severity !== "error")
+  const assets = current["001"] ?? 0
+  const sources = current["055"] ?? 0
+  const aligned = assets === sources
+  const otherIssues = issues.filter((issue) => issue.severity === "error" && !issue.message.includes("AOP 001"))
   const notes = statement.notes.filter(
     (note) => !note.includes(statement.previousDate) && !note.includes("javna objava"),
   )
@@ -80,12 +83,12 @@ export function StatementDocument({
             <p
               className={cn(
                 "inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-medium print:text-[10px]",
-                balanced ? "border-gold/50 bg-accent text-navy" : "border-destructive/40 bg-destructive/10 text-destructive",
+                aligned ? "border-gold/50 bg-accent text-navy" : "border-destructive/40 bg-destructive/10 text-destructive",
               )}
             >
-              {balanced
-                ? "Stranici sta usklajeni"
-                : `Razlika ${formatCents((current["001"] ?? 0) - (current["055"] ?? 0))} €`}
+              {aligned
+                ? "Bilanca stanja je usklajena"
+                : `Razlika ${formatCents(assets - sources)} €`}
             </p>
           </div>
 
@@ -102,6 +105,30 @@ export function StatementDocument({
         </div>
 
         {toolbar}
+
+        {view === "bilanca" ? (
+          <div
+            className={cn(
+              "mt-8 rounded-xl border px-5 py-4 print:mt-4 print:px-3 print:py-2",
+              aligned ? "border-gold/50 bg-accent" : "border-destructive/40 bg-destructive/10",
+            )}
+            role={aligned ? "status" : "alert"}
+          >
+            <p className="text-xs font-medium tracking-[0.16em] text-gold uppercase print:text-[9px]">Kontrola</p>
+            <p className={cn("mt-2 text-sm font-medium text-navy print:text-[11px]", !aligned && "text-destructive")}>
+              {aligned
+                ? `Bilanca stanja je usklajena. Sredstva in obveznosti do virov so ${formatCents(assets)} €.`
+                : `Razlika v bilanci stanja je ${formatCents(Math.abs(assets - sources))} €. Sredstva ${formatCents(assets)} €. Obveznosti do virov ${formatCents(sources)} €.`}
+            </p>
+            {otherIssues.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-sm text-destructive">
+                {otherIssues.map((issue) => (
+                  <li key={issue.message}>{issue.message}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
         <h2 className="font-heading mt-8 text-2xl font-semibold text-navy print:mt-4 print:text-[18px]">
           <span className="block">{view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}</span>

@@ -95,6 +95,35 @@ export async function saveDraft(company: string, draft: Omit<ClientDraft, "saved
   db.close()
 }
 
+export type LastPlace = {
+  company: string
+  phase: "primer" | "osnutek" | "arhiv"
+  archiveId?: string
+}
+
+const LAST_PLACE_KEY = "zadnja"
+
+export async function readLastPlace(): Promise<LastPlace | null> {
+  const db = await openRegistry()
+  const stored = await get<unknown>(db, "kazalo", LAST_PLACE_KEY)
+  db.close()
+  if (!stored || typeof stored !== "object") return null
+  const record = stored as { company?: unknown; phase?: unknown; archiveId?: unknown }
+  const company = typeof record.company === "string" ? normalizeClientName(record.company) : ""
+  if (!company) return null
+  const phase = record.phase === "arhiv" || record.phase === "osnutek" || record.phase === "primer" ? record.phase : "osnutek"
+  const archiveId = typeof record.archiveId === "string" && record.archiveId ? record.archiveId : undefined
+  return { company, phase, archiveId }
+}
+
+export async function writeLastPlace(place: LastPlace): Promise<void> {
+  const company = normalizeClientName(place.company)
+  if (!company) return
+  const db = await openRegistry()
+  await put(db, "kazalo", { company, phase: place.phase, archiveId: place.archiveId }, LAST_PLACE_KEY)
+  db.close()
+}
+
 export async function readDraft(company: string): Promise<ClientDraft | null> {
   if (!company || sameClient(company, SAMPLE_CLIENT)) return null
   const db = await openClient(company)
