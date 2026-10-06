@@ -218,6 +218,7 @@ function incomeRule(code: string, name: string): { aop: string; kind: "expense" 
   if (code.startsWith("741")) return { aop: "171", kind: "expense", interest: /obrest/i.test(name) }
   if (code.startsWith("742")) return { aop: "172", kind: "expense", interest: /obrest/i.test(name) }
   if (code.startsWith("743") || code.startsWith("749")) return { aop: "173", kind: "expense" }
+  if (code.startsWith("758")) return { aop: "181", kind: "expense" }
   if (code.startsWith("768")) return { aop: "124", kind: "revenue" }
   if (code.startsWith("769")) return { aop: "125", kind: "revenue" }
   if (code.startsWith("760") || code.startsWith("761")) return { aop: "112", kind: "revenue" }
@@ -327,6 +328,9 @@ function notesFor(accounts: Account[], profitOnBalance: boolean, profit: boolean
   }
   if (codes.has("450")) {
     notes.push("Zamudne obresti do dobaviteljev (konto 450) so finančni odhodek AOP 176.")
+  }
+  if ([...accounts].some((account) => account.code.startsWith("758"))) {
+    notes.push("Negativne razlike na kontu 758 so drugi odhodek AOP 181.")
   }
   if ([...accounts].some((account) => account.code.startsWith("474"))) {
     notes.push("Delodajalčevi prispevki 8,85 % so na AOP 141, preostanek na AOP 142.")

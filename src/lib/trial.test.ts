@@ -38,6 +38,36 @@ test("kratek izpis se razporedi na terjatve in obveznosti do dobaviteljev", () =
   assert.equal(current["001"], current["055"])
 })
 
+test("negativne razlike na kontu 7580 gredo na AOP 181", () => {
+  const statement = buildStatement(
+    [
+      "BLIŠČ d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.08.2026",
+      "120 Kupci",
+      "1.000,00 0,00 147,97 0,00 1.147,97 0,00 1.147,97 0,00",
+      "220 Dobavitelji",
+      "0,00 1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 200,00 0,00 200,00 0,00 200,00",
+      "400 Material",
+      "0,00 0,00 50,00 0,00 50,00 0,00 50,00 0,00",
+      "7580 Negativne razlike",
+      "0,00 0,00 2,03 0,00 2,03 0,00 2,03 0,00",
+    ].join("\n"),
+    "blisc.pdf",
+  )
+
+  assert.equal(statement.company, "BLIŠČ d.o.o.")
+  assert.equal(statement.income["181"], 203)
+  assert.equal(rollupIncome(statement.income)["186"], 14_797)
+  assert.equal(statement.balance.current["070"], 14_797)
+  assert.ok(statement.notes.some((note) => note.includes("AOP 181")))
+  assert.equal(
+    statement.warnings.some((warning) => warning.includes("7580")),
+    false,
+  )
+})
+
 test("analitika brez trištevilčnega konta gre v isto postavko bilance", () => {
   const statement = buildStatement(
     [
