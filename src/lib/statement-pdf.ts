@@ -14,7 +14,6 @@ import { signatoryById } from "@/lib/signatories"
 const NAVY = rgb(34 / 255, 44 / 255, 55 / 255)
 const DEEP = rgb(21 / 255, 58 / 255, 92 / 255)
 const GOLD = rgb(188 / 255, 161 / 255, 105 / 255)
-const CREAM = rgb(248 / 255, 237 / 255, 216 / 255)
 const BAND = rgb(242 / 255, 245 / 255, 249 / 255)
 const WHITE = rgb(1, 1, 1)
 const MUTED = rgb(93 / 255, 100 / 255, 108 / 255)
@@ -164,28 +163,13 @@ function drawHeader(page: PDFPage, font: PDFFont, fontBold: PDFFont, y: number, 
   let cursor = y - 28
   page.drawText(title, { x: MARGIN, y: cursor, size: 18, font: fontBold, color: NAVY })
   cursor -= 16
-  page.drawText("Presečni izkazi, ocena poslovanja", { x: MARGIN, y: cursor, size: 11, font, color: GOLD })
+  page.drawText("Presečni izkazi", { x: MARGIN, y: cursor, size: 11, font, color: GOLD })
   cursor -= 18
   page.drawText(job.statement.company, { x: MARGIN, y: cursor, size: 13, font: fontBold, color: NAVY })
   cursor -= 14
   const period = `Obdobje ${job.statement.period}. Stanje na dan ${job.statement.currentDate}.`
   page.drawText(period, { x: MARGIN, y: cursor, size: 9, font, color: MUTED })
-  cursor -= 16
-  if (job.view === "bilanca") {
-    const current = rollup(job.statement.balance.current)
-    const assets = current["001"] ?? 0
-    const sources = current["055"] ?? 0
-    const aligned = assets === sources
-    const note = aligned
-      ? `Bilanca stanja je usklajena. Sredstva in obveznosti do virov so ${formatCents(assets)} €.`
-      : `Razlika v bilanci stanja je ${formatCents(Math.abs(assets - sources))} €.`
-    drawRoundRect(page, MARGIN, cursor - 18, PAGE_WIDTH - MARGIN * 2, 24, 8, {
-      color: aligned ? CREAM : rgb(1, 0.95, 0.95),
-    })
-    page.drawText(note, { x: MARGIN + 8, y: cursor - 10, size: 9, font, color: NAVY })
-    cursor -= 32
-  }
-  return cursor
+  return cursor - 16
 }
 
 function drawTableHead(page: PDFPage, fontBold: PDFFont, y: number, column: string) {

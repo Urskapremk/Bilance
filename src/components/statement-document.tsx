@@ -72,7 +72,7 @@ export function StatementDocument({
         <h1 className="font-heading max-w-full text-4xl leading-tight font-semibold text-balance break-words text-navy md:text-5xl print:text-[28px] print:leading-tight">
           <span className="block">{view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}</span>
           <span className="mt-3 block text-2xl font-medium text-gold md:text-3xl print:mt-1 print:text-[16px]">
-            Presečni izkazi, ocena poslovanja
+            Presečni izkazi
           </span>
         </h1>
         <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-muted-foreground md:text-lg print:mt-2 print:text-[12px] print:leading-snug">
@@ -95,7 +95,7 @@ export function StatementDocument({
             </div>
             <p
               className={cn(
-                "inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-medium print:text-[10px]",
+                "no-print inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-medium",
                 aligned ? "border-gold/50 bg-accent text-navy" : "border-destructive/40 bg-destructive/10 text-destructive",
               )}
             >
@@ -122,7 +122,7 @@ export function StatementDocument({
         {view === "bilanca" ? (
           <div
             className={cn(
-              "mt-8 rounded-xl border px-5 py-4 print:mt-4 print:px-3 print:py-2",
+              "no-print mt-8 rounded-xl border px-5 py-4",
               aligned ? "border-gold/50 bg-accent" : "border-destructive/40 bg-destructive/10",
             )}
             role={aligned ? "status" : "alert"}
@@ -146,7 +146,7 @@ export function StatementDocument({
         <h2 className="font-heading mt-8 text-2xl font-semibold text-navy print:mt-4 print:text-[18px]">
           <span className="block">{view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}</span>
           <span className="mt-1 block text-base font-medium text-gold print:text-[12px]">
-            Presečni izkazi, ocena poslovanja
+            Presečni izkazi
           </span>
         </h2>
 

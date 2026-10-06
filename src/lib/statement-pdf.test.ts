@@ -29,5 +29,8 @@ test("izpis bilance je PDF z družbo, ki ima šumnike", async () => {
   const text = await page.getTextContent()
   const joined = text.items.map((item) => ("str" in item ? item.str : "")).join(" ")
   assert.match(joined, /Urška Premk/)
+  assert.match(joined, /Presečni izkazi/)
+  assert.doesNotMatch(joined, /ocena poslovanja/)
+  assert.doesNotMatch(joined, /usklajena/)
   assert.doesNotMatch(joined, /Kljukica/)
 })

@@ -1406,7 +1406,7 @@ export function BilanceApp() {
 
 function fileBase(statement: Statement, view: View) {
   const kind = view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"
-  return `${kind}, presečni izkazi, ocena poslovanja ${statement.company} ${statement.currentDate}`
+  return `${kind}, presečni izkazi ${statement.company} ${statement.currentDate}`
 }
 
 function Tab({
