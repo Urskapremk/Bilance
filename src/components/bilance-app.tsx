@@ -418,14 +418,8 @@ export function BilanceApp() {
       setNewClientFile(null)
       setNewClientError(null)
       setSaveAsk(false)
-      if ((data.vprasanja ?? []).length > 0) {
-        setFormulaMode("nova")
-        setFormulaRows(data.vprasanja)
-        setFormulaError(null)
-        setFormulaOpen(true)
-      } else {
-        setFormulaOpen(false)
-      }
+      setFormulaOpen(false)
+      setFormulaRows(data.konti ?? [])
       showView("bilanca")
       requestAnimationFrame(() => {
         document.querySelector("article.print-sheet, section.print-sheet")?.scrollIntoView({ block: "start" })
@@ -855,7 +849,7 @@ export function BilanceApp() {
                   ? phase === "arhiv"
                     ? "Shranjeno v arhiv. Obrazec je sestavljen iz te bruto bilance."
                     : phase === "osnutek"
-                      ? "Najprej preglejte bilanco. Popravek konta ali zneska se takoj pokaže na obeh obrazcih. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
+                      ? "Bilanca je naložena. Najprej jo preglejte. Pravila za konte določite z gumbom Pravila, obrazec pri tem ostane odprt. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
                       : "Obrazec je sestavljen iz tega izpisa. Popravek zneska v tekočem letu se na njem pokaže takoj."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
@@ -918,7 +912,7 @@ export function BilanceApp() {
                       })
                   }}
                 >
-                  Formule
+                  Pravila
                 </Button>
               ) : null}
             </div>

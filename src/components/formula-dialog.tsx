@@ -37,7 +37,6 @@ export function FormulaDialog({
       key={`${company}:${mode}:${rows.map((row) => row.code).join(",")}`}
       company={company}
       rows={rows}
-      mode={mode}
       busy={busy}
       error={error}
       onClose={() => onOpenChange(false)}
@@ -88,7 +87,6 @@ function cnLabel(valid: boolean): string {
 function FormulaForm({
   company,
   rows,
-  mode,
   busy,
   error,
   onClose,
@@ -97,7 +95,6 @@ function FormulaForm({
 }: {
   company: string
   rows: AccountRow[]
-  mode: "nova" | "vse"
   busy: boolean
   error: string | null
   onClose: () => void
@@ -143,11 +140,10 @@ function FormulaForm({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5">
       <div className="space-y-2">
-        <h2 className="font-heading text-2xl font-semibold text-navy">Kam gre konto?</h2>
+        <h2 className="font-heading text-2xl font-semibold text-navy">Pravila</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          {mode === "nova"
-            ? `Za ${company} so predlogi že vpisani. Ko spremenite konto, na primer 9831 na AOP 090, se bilanca stanja in izkaz poslovnega izida osvežita takoj.`
-            : `Formule stranke ${company}. Popravek konta se takoj pokaže na obeh obrazcih in velja tudi za naslednje bruto bilance.`}
+          Bilanca {company} je odprta levo. Določite, v kateri AOP gre konto, na primer 9831 na AOP 090. Popravek se
+          takoj pokaže na obrazcu.
         </p>
       </div>
       <div className="space-y-2">
