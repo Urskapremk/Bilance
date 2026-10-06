@@ -132,6 +132,42 @@ export async function readDraft(company: string): Promise<ClientDraft | null> {
   return draft
 }
 
+/** Obdrži družbo, obdobje in izvor shranjenega zapisa, zneske pa zamenja. */
+export function pinStoredStatement(
+  period: Pick<StoredPeriod, "company" | "period" | "currentDate" | "sourceName">,
+  statement: Statement,
+): Statement {
+  return {
+    ...statement,
+    company: period.company,
+    period: period.period,
+    currentDate: period.currentDate,
+    sourceName: period.sourceName,
+  }
+}
+
+export async function updateStoredPeriod(id: string, statement: Statement): Promise<StoredPeriod | null> {
+  if (!id) return null
+  const registry = await openRegistry()
+  const company = await get<string>(registry, "kazalo", id)
+  registry.close()
+  if (!company || typeof company !== "string") return null
+  const db = await openClient(company)
+  const period = await get<StoredPeriod>(db, "obdobja", id)
+  if (!period) {
+    db.close()
+    return null
+  }
+  const next: StoredPeriod = {
+    ...period,
+    savedAt: new Date().toISOString(),
+    statement: pinStoredStatement(period, statement),
+  }
+  await put(db, "obdobja", next)
+  db.close()
+  return next
+}
+
 export async function saveStoredPeriod(statement: Statement, pdf: ArrayBuffer, forms: string[]): Promise<StoredPeriod> {
   const name = await rememberStoredClient(statement.company)
   const period: StoredPeriod = {

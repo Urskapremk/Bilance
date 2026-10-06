@@ -65,6 +65,26 @@ export async function listArchiveFiles(): Promise<ArchiveMeta[]> {
   return metas.sort((a, b) => b.savedAt.localeCompare(a.savedAt))
 }
 
+export async function replaceArchiveStatement(id: string, statement: Statement): Promise<ArchiveMeta> {
+  const dir = entryDir(id)
+  const meta = JSON.parse(await readFile(path.join(dir, "meta.json"), "utf8")) as ArchiveMeta
+  const next: ArchiveMeta = {
+    ...meta,
+    savedAt: new Date().toISOString(),
+    forms: meta.forms?.length ? meta.forms : [...PERIOD_FORMS],
+  }
+  const stored: Statement = {
+    ...statement,
+    company: meta.company,
+    period: meta.period,
+    currentDate: meta.currentDate,
+    sourceName: meta.sourceName,
+  }
+  await writeFile(path.join(dir, "meta.json"), JSON.stringify(next))
+  await writeFile(path.join(dir, "statement.json"), JSON.stringify(stored))
+  return next
+}
+
 export async function readArchiveStatement(id: string): Promise<Statement> {
   const raw = await readFile(path.join(entryDir(id), "statement.json"), "utf8")
   return JSON.parse(raw) as Statement

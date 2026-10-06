@@ -26,10 +26,11 @@ import {
   listArchive,
   readArchive,
   saveArchive,
+  updateArchive,
   type ArchiveMeta,
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
-import { checkMark, readChecks, readDraft, readLastPlace, readStoredFormulas, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
+import { checkMark, listStoredPeriods, readChecks, readDraft, readLastPlace, readStoredFormulas, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
   clientKey,
@@ -62,6 +63,7 @@ type Workspace = {
   phase: "primer" | "osnutek" | "arhiv"
   konti: AccountRow[]
   besedilo: string
+  archiveId?: string
 }
 
 const DEFAULT_PDF = "/sources/Grafam_BB_31.08.2026.pdf"
@@ -136,6 +138,8 @@ export function BilanceApp() {
   const sampleTextRef = useRef("")
   const persistTimer = useRef<number | null>(null)
   const archiveIdRef = useRef<string | undefined>(undefined)
+  const archivePdfRef = useRef<ArrayBuffer | null>(null)
+  const statementRef = useRef(statement)
   const checkScope = useRef({ company: initialStatement.company, period: initialStatement.period })
   const checkLoad = useRef(0)
 
@@ -148,7 +152,8 @@ export function BilanceApp() {
     pdfNameRef.current = pdfName
     activeClientRef.current = activeClient
     kontiRef.current = konti
-  }, [phase, pdfName, activeClient, konti])
+    statementRef.current = statement
+  }, [phase, pdfName, activeClient, konti, statement])
 
   function showView(next: View) {
     setView(next)
@@ -280,10 +285,19 @@ export function BilanceApp() {
     workspaces.current.set(clientKey(workspace.statement.company), workspace)
   }
 
+  function clearArchive() {
+    archiveIdRef.current = undefined
+    archivePdfRef.current = null
+  }
+
+  function openPdf(): ArrayBuffer | null {
+    return phaseRef.current === "arhiv" ? archivePdfRef.current : (draftRef.current?.pdf ?? null)
+  }
+
   function rememberWorkspace(next: Statement, nextKonti: AccountRow[] = kontiRef.current) {
-    const pdf = draftRef.current?.pdf
+    const pdf = openPdf()
     if (!pdf) return
-    draftRef.current = { statement: next, pdf }
+    if (phaseRef.current !== "arhiv") draftRef.current = { statement: next, pdf }
     cacheWorkspace({
       statement: next,
       pdf,
@@ -291,20 +305,24 @@ export function BilanceApp() {
       phase: phaseRef.current === "primer" ? "osnutek" : phaseRef.current,
       konti: nextKonti,
       besedilo: textRef.current,
+      archiveId: phaseRef.current === "arhiv" ? archiveIdRef.current : undefined,
     })
   }
 
-  function scheduleBook(next: Statement, formule: AccountFormula[], nextKonti: AccountRow[]) {
+  function persistOpenStatement(next: Statement, nextKonti: AccountRow[] = kontiRef.current) {
     if (persistTimer.current) window.clearTimeout(persistTimer.current)
     persistTimer.current = window.setTimeout(() => {
-      const pdf = draftRef.current?.pdf
-      void saveStoredFormulas(next.company, formule).catch(() => undefined)
-      void fetch("/api/formule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: next.company, formule }),
-      }).catch(() => undefined)
-      if (!pdf) return
+      const id = phaseRef.current === "arhiv" ? archiveIdRef.current : undefined
+      if (id) {
+        void updateArchive(id, next)
+          .then((meta) => {
+            if (!meta) return
+            setArchiveItems((items) => items.map((item) => (item.id === meta.id ? { ...item, ...meta } : item)))
+          })
+          .catch(() => undefined)
+      }
+      const pdf = openPdf()
+      if (!pdf || phaseRef.current === "arhiv" || sameClient(next.company, SAMPLE_CLIENT)) return
       void saveDraft(next.company, {
         statement: next,
         pdf,
@@ -312,6 +330,19 @@ export function BilanceApp() {
         konti: nextKonti,
         besedilo: textRef.current,
       }).catch(() => undefined)
+    }, 250)
+  }
+
+  function scheduleBook(next: Statement, formule: AccountFormula[], nextKonti: AccountRow[]) {
+    if (persistTimer.current) window.clearTimeout(persistTimer.current)
+    persistTimer.current = window.setTimeout(() => {
+      void saveStoredFormulas(next.company, formule).catch(() => undefined)
+      void fetch("/api/formule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: next.company, formule }),
+      }).catch(() => undefined)
+      persistOpenStatement(next, nextKonti)
     }, 250)
   }
 
@@ -324,6 +355,11 @@ export function BilanceApp() {
       const response = await fetch("/api/bruto-bilanca", { method: "POST", body })
       const data = (await response.json().catch(() => null)) as ParsedTrial | null
       if (!textRef.current && data?.besedilo) textRef.current = data.besedilo
+      if (data?.konti?.length && kontiRef.current.length === 0) {
+        setKonti(data.konti)
+        const cached = workspaces.current.get(clientKey(activeClientRef.current))
+        if (cached) cacheWorkspace({ ...cached, konti: data.konti, besedilo: textRef.current })
+      }
     } catch {
       /* naslednji popravek počaka na besedilo */
     }
@@ -340,6 +376,7 @@ export function BilanceApp() {
       const parsed = trialFromText(text, pdfNameRef.current || "bruto-bilanca.pdf", formule)
       const named = statementForClient(parsed.statement, activeClientRef.current || parsed.statement.company)
       formulasRef.current = formule
+      statementRef.current = named
       setStatement(named)
       setKonti(parsed.konti)
       setFormulaError(null)
@@ -360,24 +397,11 @@ export function BilanceApp() {
   }
 
   function editAmount(obrazec: "bilanca" | "izkaz", aop: string, cents: number) {
-    setStatement((current) => {
-      const next = applyCurrentAmount(current, obrazec, aop, cents)
-      rememberWorkspace(next)
-      const pdf = draftRef.current?.pdf
-      if (pdf) {
-        if (persistTimer.current) window.clearTimeout(persistTimer.current)
-        persistTimer.current = window.setTimeout(() => {
-          void saveDraft(next.company, {
-            statement: next,
-            pdf,
-            pdfName: pdfNameRef.current,
-            konti: kontiRef.current,
-            besedilo: textRef.current,
-          }).catch(() => undefined)
-        }, 250)
-      }
-      return next
-    })
+    const next = applyCurrentAmount(statementRef.current, obrazec, aop, cents)
+    statementRef.current = next
+    setStatement(next)
+    rememberWorkspace(next)
+    persistOpenStatement(next)
   }
 
   function showPdf(nextUrl: string, name: string) {
@@ -389,6 +413,7 @@ export function BilanceApp() {
   }
 
   function restoreSample() {
+    statementRef.current = initialStatement
     setStatement(initialStatement)
     showPdf(DEFAULT_PDF, initialStatement.sourceName)
     setActiveClient(SAMPLE_CLIENT)
@@ -400,22 +425,31 @@ export function BilanceApp() {
     setKonti(sampleKontiRef.current)
     setFormulaOpen(false)
     draftRef.current = null
+    clearArchive()
     setSaveAsk(false)
   }
 
   function applyWorkspace(workspace: Workspace) {
     showPdf(URL.createObjectURL(new Blob([workspace.pdf], { type: "application/pdf" })), workspace.pdfName)
     textRef.current = workspace.besedilo
+    statementRef.current = workspace.statement
     setStatement(workspace.statement)
     setActiveClient(workspace.statement.company)
+    phaseRef.current = workspace.phase
     setPhase(workspace.phase)
     setBlank(false)
     setLinked(true)
     setError(null)
     setKonti(workspace.konti)
     setFormulaOpen(false)
-    draftRef.current =
-      workspace.phase === "osnutek" ? { statement: workspace.statement, pdf: workspace.pdf } : null
+    if (workspace.phase === "arhiv") {
+      archiveIdRef.current = workspace.archiveId
+      archivePdfRef.current = workspace.pdf
+      draftRef.current = null
+    } else {
+      clearArchive()
+      draftRef.current = workspace.phase === "osnutek" ? { statement: workspace.statement, pdf: workspace.pdf } : null
+    }
     setSaveAsk(false)
   }
 
@@ -476,6 +510,7 @@ export function BilanceApp() {
       fileRef.current = file
       textRef.current = data.besedilo ?? ""
       phaseRef.current = "osnutek"
+      clearArchive()
       cacheWorkspace({
         statement: named,
         pdf,
@@ -484,6 +519,7 @@ export function BilanceApp() {
         konti: data.konti ?? [],
         besedilo: data.besedilo ?? "",
       })
+      statementRef.current = named
       setStatement(named)
       setActiveClient(named.company)
       setKonti(data.konti ?? [])
@@ -523,6 +559,7 @@ export function BilanceApp() {
       const message = caught instanceof Error ? caught.message : "Bruto bilance ni bilo mogoče prebrati."
       setLinked(false)
       draftRef.current = null
+      clearArchive()
       setSaveAsk(false)
       if (company) setNewClientError(message)
       else setError(message)
@@ -557,11 +594,14 @@ export function BilanceApp() {
       if (textRef.current) {
         const parsed = trialFromText(textRef.current, pdfNameRef.current || "bruto-bilanca.pdf", full)
         const named = statementForClient(parsed.statement, name)
+        statementRef.current = named
         setStatement(named)
         setKonti(parsed.konti)
         rememberWorkspace(named, parsed.konti)
-        const pdf = draftRef.current?.pdf
-        if (pdf) {
+        const id = phaseRef.current === "arhiv" ? archiveIdRef.current : undefined
+        if (id) await updateArchive(id, named)
+        const pdf = openPdf()
+        if (pdf && phaseRef.current !== "arhiv") {
           await saveDraft(name, {
             statement: named,
             pdf,
@@ -600,7 +640,19 @@ export function BilanceApp() {
       /* ob napaki ostane zadnji seznam */
     }
     const draft = await readDraft(name).catch(() => null)
-    if (draft) {
+    const stored = await listStoredPeriods().catch(() => [])
+    const latest = stored.find((item) => sameClient(item.company, name)) ?? items.find((item) => sameClient(item.company, name))
+    const sameSavedWork =
+      latest &&
+      draft?.statement &&
+      latest.period === draft.statement.period &&
+      latest.sourceName === draft.pdfName &&
+      latest.savedAt >= draft.savedAt
+    if (latest && (!draft?.statement || sameSavedWork)) {
+      await openArchived(latest.id)
+      return
+    }
+    if (draft?.statement && draft.pdf) {
       textRef.current = draft.besedilo ?? ""
       applyWorkspace({
         statement: draft.statement,
@@ -611,11 +663,6 @@ export function BilanceApp() {
         besedilo: draft.besedilo ?? "",
       })
       if (!draft.besedilo) void hydrateText(draft.pdf, draft.pdfName)
-      return
-    }
-    const latest = items.find((item) => sameClient(item.company, name))
-    if (latest) {
-      await openArchived(latest.id)
       return
     }
     if (sameClient(name, SAMPLE_CLIENT)) {
@@ -630,6 +677,7 @@ export function BilanceApp() {
     setError(null)
     setPhase("osnutek")
     draftRef.current = null
+    clearArchive()
     setSaveAsk(false)
   }
 
@@ -679,6 +727,9 @@ export function BilanceApp() {
     try {
       const meta = await saveArchive(draft.statement, draft.pdf.slice(0))
       setArchiveItems(await listArchive())
+      archiveIdRef.current = meta.id
+      archivePdfRef.current = draft.pdf.slice(0)
+      phaseRef.current = "arhiv"
       setPhase("arhiv")
       cacheWorkspace({
         statement: draft.statement,
@@ -687,6 +738,7 @@ export function BilanceApp() {
         phase: "arhiv",
         konti,
         besedilo: textRef.current,
+        archiveId: meta.id,
       })
       void refreshClients()
       draftRef.current = null
@@ -718,8 +770,10 @@ export function BilanceApp() {
       const nextUrl = URL.createObjectURL(new Blob([stored.pdf], { type: "application/pdf" }))
       showPdf(nextUrl, stored.sourceName)
       setStatement(stored.statement)
+      statementRef.current = stored.statement
       setActiveClient(stored.statement.company)
       archiveIdRef.current = id
+      archivePdfRef.current = stored.pdf.slice(0)
       textRef.current = ""
       cacheWorkspace({
         statement: stored.statement,
@@ -728,12 +782,14 @@ export function BilanceApp() {
         phase: "arhiv",
         konti: [],
         besedilo: "",
+        archiveId: id,
       })
       void hydrateText(stored.pdf, stored.sourceName)
       setKonti([])
       setFormulaOpen(false)
       setLinked(true)
       setBlank(false)
+      phaseRef.current = "arhiv"
       setPhase("arhiv")
       draftRef.current = null
       setSaveAsk(false)
@@ -950,7 +1006,7 @@ export function BilanceApp() {
                 ? "Nova stranka čaka na svojo bruto bilanco. Dodajte PDF ali jo ustvarite z Nova stranka."
                 : linked
                   ? phase === "arhiv"
-                    ? "Shranjeno v arhiv. Obrazec je sestavljen iz te bruto bilance."
+                    ? "Shranjeno obdobje. Znesek tekočega leta popravite v vrstici. Popravek se takoj vidi in zapiše v to shranjeno obdobje."
                     : phase === "osnutek"
                       ? "Bilanca je naložena. Najprej jo preglejte. Pravila odprejo okno, ki ga primete za naslov in premaknete, da vidite bilanco. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
                       : "Obrazec je sestavljen iz tega izpisa. Popravek zneska v tekočem letu se na njem pokaže takoj."
@@ -1111,7 +1167,7 @@ export function BilanceApp() {
           <DialogHeader>
             <DialogTitle className="text-2xl text-navy">Arhiv končnih bilanc</DialogTitle>
             <DialogDescription>
-              Vsaka stranka hrani svoja obdobja v svoji bazi. Pri obdobju sta shranjena izvorni PDF ter oba obrazca.
+              Vsaka stranka hrani svoja obdobja v svoji bazi. Pri obdobju sta shranjena izvorni PDF ter oba obrazca. Znesek v odprtem obdobju popravite na obrazcu.
             </DialogDescription>
           </DialogHeader>
           {archiveError ? (

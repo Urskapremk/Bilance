@@ -1,4 +1,4 @@
-import { listStoredPeriods, readStoredPeriod, saveStoredPeriod } from "@/lib/browser-book"
+import { listStoredPeriods, readStoredPeriod, saveStoredPeriod, updateStoredPeriod } from "@/lib/browser-book"
 import { sameClient } from "@/lib/clients"
 import type { Statement } from "@/lib/trial"
 
@@ -49,6 +49,25 @@ export async function listArchive(): Promise<ArchiveMeta[]> {
   )
 }
 
+export async function updateArchive(id: string, statement: Statement): Promise<ArchiveMeta | null> {
+  if (browserBook()) {
+    const stored = await updateStoredPeriod(id, statement)
+    if (stored) {
+      void updateRemoteArchive(id, statement).catch(() => undefined)
+      return {
+        id: stored.id,
+        savedAt: stored.savedAt,
+        company: stored.company,
+        period: stored.period,
+        currentDate: stored.currentDate,
+        sourceName: stored.sourceName,
+        forms: stored.forms,
+      }
+    }
+  }
+  return updateRemoteArchive(id, statement).catch(() => null)
+}
+
 export async function readArchive(id: string): Promise<{ statement: Statement; pdf: ArrayBuffer; sourceName: string }> {
   if (browserBook()) {
     const stored = await readStoredPeriod(id)
@@ -78,6 +97,19 @@ async function listRemoteArchive(): Promise<ArchiveMeta[]> {
   const response = await fetch("/api/arhiv", { cache: "no-store" })
   if (!response.ok) throw new Error("Arhiva ni bilo mogoče odpreti.")
   return (await response.json()) as ArchiveMeta[]
+}
+
+async function updateRemoteArchive(id: string, statement: Statement): Promise<ArchiveMeta> {
+  const response = await fetch(`/api/arhiv/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(statement),
+  })
+  const data = (await response.json().catch(() => null)) as (ArchiveMeta & { error?: string }) | null
+  if (!response.ok || !data?.id) {
+    throw new Error(data?.error ?? "Shranjene bilance ni bilo mogoče popraviti.")
+  }
+  return data
 }
 
 async function readRemoteArchive(id: string): Promise<{ statement: Statement; pdf: ArrayBuffer; sourceName: string }> {

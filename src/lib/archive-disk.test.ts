@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises"
 import path from "node:path"
 import test from "node:test"
 
-import { listArchiveFiles, readArchivePdf, readArchiveStatement, writeArchive } from "./archive-disk.ts"
+import { listArchiveFiles, readArchivePdf, readArchiveStatement, replaceArchiveStatement, writeArchive } from "./archive-disk.ts"
 import type { Statement } from "./trial.ts"
 
 const statement: Statement = {
@@ -29,6 +29,17 @@ test("končna bilanca se zapiše na disk in se prebere nazaj", async () => {
     assert.equal(stored.balance.current["070"], 975862)
     const storedPdf = await readArchivePdf(meta.id)
     assert.equal(storedPdf.subarray(0, 5).toString(), "%PDF-")
+    const replaced = await replaceArchiveStatement(meta.id, {
+      ...statement,
+      company: "Druga d.o.o.",
+      balance: { current: { "070": 1200 }, previous: {} },
+    })
+    assert.equal(replaced.company, "GRAFAM d.o.o.")
+    assert.equal(replaced.id, meta.id)
+    const corrected = await readArchiveStatement(meta.id)
+    assert.equal(corrected.balance.current["070"], 1200)
+    assert.equal(corrected.company, "GRAFAM d.o.o.")
+    assert.equal(corrected.period, statement.period)
   } finally {
     await rm(path.join(process.cwd(), "data", "arhiv", meta.id), { recursive: true, force: true })
   }
