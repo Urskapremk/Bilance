@@ -107,19 +107,13 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
     pages.push(page)
     y = PAGE_HEIGHT - MARGIN
   }
-  const lineWidth = 180
-  const lineX = PAGE_WIDTH - MARGIN - lineWidth
-  const lineY = y - 36
-  page.drawLine({
-    start: { x: lineX, y: lineY },
-    end: { x: lineX + lineWidth, y: lineY },
-    thickness: 0.6,
-    color: NAVY,
-  })
+  const blockWidth = 180
+  const blockX = PAGE_WIDTH - MARGIN - blockWidth
+  const nameY = y - 28
   const nameWidth = fontBold.widthOfTextAtSize(signer.name, 10)
   page.drawText(signer.name, {
-    x: lineX + (lineWidth - nameWidth) / 2,
-    y: lineY - 14,
+    x: blockX + (blockWidth - nameWidth) / 2,
+    y: nameY,
     size: 10,
     font: fontBold,
     color: NAVY,
@@ -127,8 +121,8 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
   if (signer.role) {
     const roleWidth = font.widthOfTextAtSize(signer.role, 8)
     page.drawText(signer.role, {
-      x: lineX + (lineWidth - roleWidth) / 2,
-      y: lineY - 26,
+      x: blockX + (blockWidth - roleWidth) / 2,
+      y: nameY - 12,
       size: 8,
       font,
       color: MUTED,

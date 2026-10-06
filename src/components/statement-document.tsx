@@ -242,8 +242,7 @@ function SignatureBlock({ signatoryId, onSignatory }: { signatoryId?: string; on
       ) : null}
       <div className="mt-8 flex justify-end print:mt-6">
         <div className="w-56 text-center">
-          <div className="border-b border-navy" />
-          <p className="mt-2 font-medium text-navy">{signer.name}</p>
+          <p className="font-medium text-navy">{signer.name}</p>
           {signer.role ? <p className="text-xs text-muted-foreground">{signer.role}</p> : null}
         </div>
       </div>
