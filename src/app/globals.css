@@ -172,11 +172,19 @@
     border-bottom-color: transparent;
   }
 
-  .print-sheet tbody tr:last-child th:first-child {
+  .print-sheet thead .statement-edge-start {
+    border-top-left-radius: 13px;
+  }
+
+  .print-sheet thead .statement-edge-end {
+    border-top-right-radius: 13px;
+  }
+
+  .print-sheet tbody tr:last-child .statement-edge-start {
     border-bottom-left-radius: 13px;
   }
 
-  .print-sheet tbody tr:last-child td:last-child {
+  .print-sheet tbody tr:last-child .statement-edge-end {
     border-bottom-right-radius: 13px;
   }
 
@@ -207,11 +215,11 @@
     white-space: nowrap;
   }
 
-  .statement-head th:first-child {
+  .statement-head .statement-edge-start {
     border-top-left-radius: 13px;
   }
 
-  .statement-head th:last-child {
+  .statement-head .statement-edge-end {
     border-top-right-radius: 13px;
   }
 

@@ -62,15 +62,17 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
       y = PAGE_HEIGHT - MARGIN
       y = drawTableHead(page, fontBold, y, column)
     }
-    page.drawRectangle({
-      x: MARGIN,
-      y: y - height,
-      width: PAGE_WIDTH - MARGIN * 2,
+    const last = rows[rows.length - 1] === row
+    drawRoundRect(
+      page,
+      MARGIN,
+      y - height,
+      PAGE_WIDTH - MARGIN * 2,
       height,
-      color: row.band ? BAND : WHITE,
-      borderColor: LINE,
-      borderWidth: 0.3,
-    })
+      8,
+      { color: row.band ? BAND : WHITE, borderColor: LINE, borderWidth: 0.4 },
+      { tl: false, tr: false, bl: last, br: last },
+    )
     lines.forEach((line, index) => {
       page.drawText(line, {
         x: MARGIN + 8 + row.depth * 12,
@@ -142,11 +144,7 @@ function drawHeader(page: PDFPage, font: PDFFont, fontBold: PDFFont, y: number, 
     const note = aligned
       ? `Bilanca stanja je usklajena. Sredstva in obveznosti do virov so ${formatCents(assets)} €.`
       : `Razlika v bilanci stanja je ${formatCents(Math.abs(assets - sources))} €.`
-    page.drawRectangle({
-      x: MARGIN,
-      y: cursor - 18,
-      width: PAGE_WIDTH - MARGIN * 2,
-      height: 24,
+    drawRoundRect(page, MARGIN, cursor - 18, PAGE_WIDTH - MARGIN * 2, 24, 8, {
       color: aligned ? CREAM : rgb(1, 0.95, 0.95),
     })
     page.drawText(note, { x: MARGIN + 8, y: cursor - 10, size: 9, font, color: NAVY })
@@ -157,13 +155,7 @@ function drawHeader(page: PDFPage, font: PDFFont, fontBold: PDFFont, y: number, 
 
 function drawTableHead(page: PDFPage, fontBold: PDFFont, y: number, column: string) {
   const height = 18
-  page.drawRectangle({
-    x: MARGIN,
-    y: y - height,
-    width: PAGE_WIDTH - MARGIN * 2,
-    height,
-    color: DEEP,
-  })
+  drawRoundRect(page, MARGIN, y - height, PAGE_WIDTH - MARGIN * 2, height, 8, { color: DEEP }, { tl: true, tr: true, bl: false, br: false })
   page.drawText("POSTAVKA", { x: MARGIN + 8, y: y - 12, size: 8, font: fontBold, color: WHITE })
   page.drawText("AOP", { x: MARGIN + 392, y: y - 12, size: 8, font: fontBold, color: WHITE })
   const columnWidth = fontBold.widthOfTextAtSize(column, 8)
@@ -201,6 +193,42 @@ function incomeRows(job: PrintJob): PdfRow[] {
     depth: line.depth,
     band: line.depth === 0,
   }))
+}
+
+function drawRoundRect(
+  page: PDFPage,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  options: { color: ReturnType<typeof rgb>; borderColor?: ReturnType<typeof rgb>; borderWidth?: number },
+  corners: { tl: boolean; tr: boolean; bl: boolean; br: boolean } = { tl: true, tr: true, bl: true, br: true },
+) {
+  const r = Math.min(radius, width / 2, height / 2)
+  const tl = corners.tl ? r : 0
+  const tr = corners.tr ? r : 0
+  const bl = corners.bl ? r : 0
+  const br = corners.br ? r : 0
+  const path = [
+    `M ${tl} 0`,
+    `H ${width - tr}`,
+    tr ? `Q ${width} 0 ${width} ${tr}` : `L ${width} 0`,
+    `V ${height - br}`,
+    br ? `Q ${width} ${height} ${width - br} ${height}` : `L ${width} ${height}`,
+    `H ${bl}`,
+    bl ? `Q 0 ${height} 0 ${height - bl}` : `L 0 ${height}`,
+    `V ${tl}`,
+    tl ? `Q 0 0 ${tl} 0` : `L 0 0`,
+    "Z",
+  ].join(" ")
+  page.drawSvgPath(path, {
+    x,
+    y: y + height,
+    color: options.color,
+    borderColor: options.borderColor,
+    borderWidth: options.borderWidth,
+  })
 }
 
 function wrap(text: string, font: PDFFont, size: number, width: number): string[] {

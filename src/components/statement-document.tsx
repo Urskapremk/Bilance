@@ -1,5 +1,6 @@
 "use client"
 
+import { Check } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 
@@ -258,9 +259,9 @@ function BalanceTable({
                 <span className="sr-only">Kontrola</span>
               </th>
             ) : null}
-            <th className="px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
+            <th className="statement-edge-start px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-14 print:px-2 print:py-2">AOP</th>
-            <th className="w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{currentDate}</th>
+            <th className="statement-edge-end w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{currentDate}</th>
           </tr>
         </thead>
         <tbody>
@@ -311,9 +312,9 @@ function IncomeTable({
                 <span className="sr-only">Kontrola</span>
               </th>
             ) : null}
-            <th className="px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
+            <th className="statement-edge-start px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-14 print:px-2 print:py-2">AOP</th>
-            <th className="w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{period}</th>
+            <th className="statement-edge-end w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{period}</th>
           </tr>
         </thead>
         <tbody>
@@ -354,19 +355,25 @@ function StatementRow({
     <tr className={cn("border-b border-border", band ? "statement-band bg-secondary" : "bg-card", checked && "bg-accent/60")}>
       {onToggle ? (
         <td className="no-print px-2 py-2.5 text-center">
-          <input
-            type="checkbox"
-            className="size-4 accent-[#bca169]"
-            checked={checked}
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={checked}
             aria-label={`Kljukica za kontrolo, ${line.aop} ${line.label}`}
-            onChange={onToggle}
-          />
+            onClick={onToggle}
+            className={cn(
+              "inline-flex size-4 items-center justify-center rounded-md border border-[#bca169]",
+              checked ? "bg-[#bca169] text-white" : "bg-card",
+            )}
+          >
+            {checked ? <Check className="size-3" strokeWidth={3} /> : null}
+          </button>
         </td>
       ) : null}
       <th
         scope="row"
         className={cn(
-          "px-5 py-2.5 pl-[calc(var(--indent)*0.9rem+1.25rem)] text-left font-normal text-navy md:px-7 print:px-3 print:py-[3px] print:pl-[calc(var(--indent)*0.55rem+0.75rem)] print:text-[10.5px]",
+          "statement-edge-start px-5 py-2.5 pl-[calc(var(--indent)*0.9rem+1.25rem)] text-left font-normal text-navy md:px-7 print:px-3 print:py-[3px] print:pl-[calc(var(--indent)*0.55rem+0.75rem)] print:text-[10.5px]",
           band && "font-heading text-lg font-semibold print:text-[13px]",
           line.depth === 1 && "font-medium",
         )}
@@ -375,7 +382,7 @@ function StatementRow({
         {line.label}
       </th>
       <td className="px-3 py-2.5 text-center font-mono text-xs text-gold tabular-nums print:px-2 print:py-[3px] print:text-[10px]">{line.aop}</td>
-      <td className={cn("px-3 py-2.5 text-right tabular-nums md:pr-7 print:px-3 print:py-[3px]", band && "font-medium text-navy")}>
+      <td className={cn("statement-edge-end px-3 py-2.5 text-right tabular-nums md:pr-7 print:px-3 print:py-[3px]", band && "font-medium text-navy")}>
         {editable && onCommit ? (
           <AmountField label={`${line.aop} ${line.label}`} value={primary} onCommit={onCommit} />
         ) : (
