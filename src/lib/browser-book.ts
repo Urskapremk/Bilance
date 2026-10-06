@@ -186,12 +186,32 @@ function openRegistry(): Promise<IDBDatabase> {
 }
 
 function openClient(company: string): Promise<IDBDatabase> {
-  return openDatabase(clientDatabaseName(company), 1, (db) => {
+  return openDatabase(clientDatabaseName(company), 2, (db) => {
     if (!db.objectStoreNames.contains("formule")) db.createObjectStore("formule")
     if (!db.objectStoreNames.contains("obdobja")) db.createObjectStore("obdobja", { keyPath: "id" })
     if (!db.objectStoreNames.contains("pdf")) db.createObjectStore("pdf")
     if (!db.objectStoreNames.contains("osnutek")) db.createObjectStore("osnutek")
+    if (!db.objectStoreNames.contains("kontrola")) db.createObjectStore("kontrola")
   })
+}
+
+export function checkMark(obrazec: "bilanca" | "izkaz", aop: string): string {
+  return `${obrazec}:${aop}`
+}
+
+export async function readChecks(company: string, period: string): Promise<string[]> {
+  if (!company || !period) return []
+  const db = await openClient(company)
+  const marks = (await get<unknown>(db, "kontrola", period)) ?? []
+  db.close()
+  return Array.isArray(marks) ? marks.filter((mark): mark is string => typeof mark === "string") : []
+}
+
+export async function writeChecks(company: string, period: string, marks: string[]): Promise<void> {
+  if (!company || !period) return
+  const db = await openClient(company)
+  await put(db, "kontrola", marks, period)
+  db.close()
 }
 
 function openDatabase(name: string, version: number, upgrade: (db: IDBDatabase) => void): Promise<IDBDatabase> {

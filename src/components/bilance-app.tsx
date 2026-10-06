@@ -29,7 +29,7 @@ import {
   type ArchiveMeta,
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
-import { readDraft, readLastPlace, readStoredFormulas, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeLastPlace } from "@/lib/browser-book"
+import { checkMark, readChecks, readDraft, readLastPlace, readStoredFormulas, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
   clientKey,
@@ -117,6 +117,7 @@ export function BilanceApp() {
   const [formulaError, setFormulaError] = useState<string | null>(null)
   const [savingFormulas, setSavingFormulas] = useState(false)
   const [opened, setOpened] = useState(false)
+  const [checks, setChecks] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const newFileRef = useRef<HTMLInputElement>(null)
   const pdfUrlRef = useRef(pdfUrl)
@@ -135,6 +136,8 @@ export function BilanceApp() {
   const sampleTextRef = useRef("")
   const persistTimer = useRef<number | null>(null)
   const archiveIdRef = useRef<string | undefined>(undefined)
+  const checkScope = useRef({ company: initialStatement.company, period: initialStatement.period })
+  const checkLoad = useRef(0)
 
   useEffect(() => {
     pdfUrlRef.current = pdfUrl
@@ -208,6 +211,18 @@ export function BilanceApp() {
       cancel = true
     }
   }, [opened, phase])
+
+  useEffect(() => {
+    checkScope.current = { company: statement.company, period: statement.period }
+    const load = ++checkLoad.current
+    void readChecks(statement.company, statement.period)
+      .then((marks) => {
+        if (load === checkLoad.current) setChecks(marks)
+      })
+      .catch(() => {
+        if (load === checkLoad.current) setChecks([])
+      })
+  }, [statement.company, statement.period])
 
   useEffect(() => {
     if (!opened) return
@@ -333,6 +348,15 @@ export function BilanceApp() {
     } catch (caught) {
       setFormulaError(caught instanceof Error ? caught.message : "Obrazca ni bilo mogoče osvežiti.")
     }
+  }
+
+  function toggleCheck(obrazec: "bilanca" | "izkaz", aop: string) {
+    checkLoad.current += 1
+    const key = checkMark(obrazec, aop)
+    const next = checks.includes(key) ? checks.filter((mark) => mark !== key) : [...checks, key]
+    setChecks(next)
+    const scope = checkScope.current
+    void writeChecks(scope.company, scope.period, next).catch(() => undefined)
   }
 
   function editAmount(obrazec: "bilanca" | "izkaz", aop: string, cents: number) {
@@ -885,6 +909,8 @@ export function BilanceApp() {
             toolbar={toolbar}
             busy={busy}
             onEdit={editAmount}
+            checks={new Set(checks)}
+            onToggleCheck={toggleCheck}
           />
         )}
 

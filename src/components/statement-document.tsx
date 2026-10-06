@@ -17,6 +17,8 @@ export function StatementDocument({
   toolbar,
   busy = false,
   onEdit,
+  checks,
+  onToggleCheck,
 }: {
   statement: Statement
   view: "bilanca" | "izkaz"
@@ -24,6 +26,8 @@ export function StatementDocument({
   toolbar?: ReactNode
   busy?: boolean
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
+  checks?: ReadonlySet<string>
+  onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
   const current = rollup(statement.balance.current)
   const income = rollupIncome(statement.income)
@@ -137,6 +141,12 @@ export function StatementDocument({
           </span>
         </h2>
 
+        {onToggleCheck ? (
+          <p className="no-print mt-4 text-sm text-muted-foreground">
+            Kljukica ob postavki je samo za vašo kontrolo.
+          </p>
+        ) : null}
+
         <div className="mt-4 min-w-0 overflow-hidden rounded-xl border border-border bg-card print:mt-3">
           {view === "bilanca" ? (
             <BalanceTable
@@ -145,6 +155,8 @@ export function StatementDocument({
               current={current}
               showZeros={showZeros}
               onEdit={onEdit}
+              checks={checks}
+              onToggleCheck={onToggleCheck}
             />
           ) : (
             <IncomeTable
@@ -153,6 +165,8 @@ export function StatementDocument({
               values={income}
               showZeros={showZeros}
               onEdit={onEdit}
+              checks={checks}
+              onToggleCheck={onToggleCheck}
             />
           )}
         </div>
@@ -211,12 +225,16 @@ function BalanceTable({
   current,
   showZeros,
   onEdit,
+  checks,
+  onToggleCheck,
 }: {
   company: string
   currentDate: string
   current: Record<string, number>
   showZeros: boolean
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
+  checks?: ReadonlySet<string>
+  onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
   const rows = LINES.filter((line) => {
     if (showZeros) return true
@@ -230,6 +248,11 @@ function BalanceTable({
         <caption className="sr-only">Bilanca stanja {company}, {currentDate}</caption>
         <thead>
           <tr className="statement-head bg-deep-blue text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[10px]">
+            {onToggleCheck ? (
+              <th className="no-print w-12 px-2 py-3 text-center font-medium" scope="col">
+                <span className="sr-only">Kontrola</span>
+              </th>
+            ) : null}
             <th className="px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-14 print:px-2 print:py-2">AOP</th>
             <th className="w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{currentDate}</th>
@@ -243,6 +266,8 @@ function BalanceTable({
               primary={current[line.aop] ?? 0}
               editable={Boolean(onEdit) && !isCalculated(line.aop)}
               onCommit={onEdit ? (cents) => onEdit("bilanca", line.aop, cents) : undefined}
+              checked={checks?.has(`bilanca:${line.aop}`) ?? false}
+              onToggle={onToggleCheck ? () => onToggleCheck("bilanca", line.aop) : undefined}
             />
           ))}
         </tbody>
@@ -257,12 +282,16 @@ function IncomeTable({
   values,
   showZeros,
   onEdit,
+  checks,
+  onToggleCheck,
 }: {
   company: string
   period: string
   values: Record<string, number>
   showZeros: boolean
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
+  checks?: ReadonlySet<string>
+  onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
   const rows = INCOME_LINES.filter((line) => showZeros || (values[line.aop] ?? 0) !== 0)
 
@@ -272,6 +301,11 @@ function IncomeTable({
         <caption className="sr-only">Izkaz poslovnega izida {company}</caption>
         <thead>
           <tr className="statement-head bg-deep-blue text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[10px]">
+            {onToggleCheck ? (
+              <th className="no-print w-12 px-2 py-3 text-center font-medium" scope="col">
+                <span className="sr-only">Kontrola</span>
+              </th>
+            ) : null}
             <th className="px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-14 print:px-2 print:py-2">AOP</th>
             <th className="w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{period}</th>
@@ -285,6 +319,8 @@ function IncomeTable({
               primary={values[line.aop] ?? 0}
               editable={Boolean(onEdit) && incomeKind(line.aop) !== null}
               onCommit={onEdit ? (cents) => onEdit("izkaz", line.aop, cents) : undefined}
+              checked={checks?.has(`izkaz:${line.aop}`) ?? false}
+              onToggle={onToggleCheck ? () => onToggleCheck("izkaz", line.aop) : undefined}
             />
           ))}
         </tbody>
@@ -298,15 +334,30 @@ function StatementRow({
   primary,
   editable = false,
   onCommit,
+  checked = false,
+  onToggle,
 }: {
   line: LineDef | IncomeLine
   primary: number
   editable?: boolean
   onCommit?: (cents: number) => void
+  checked?: boolean
+  onToggle?: () => void
 }) {
   const band = line.depth === 0
   return (
-    <tr className={cn("border-b border-border", band ? "statement-band bg-secondary" : "bg-card")}>
+    <tr className={cn("border-b border-border", band ? "statement-band bg-secondary" : "bg-card", checked && "bg-accent/60")}>
+      {onToggle ? (
+        <td className="no-print px-2 py-2.5 text-center">
+          <input
+            type="checkbox"
+            className="size-4 accent-[#bca169]"
+            checked={checked}
+            aria-label={`Kljukica za kontrolo, ${line.aop} ${line.label}`}
+            onChange={onToggle}
+          />
+        </td>
+      ) : null}
       <th
         scope="row"
         className={cn(
