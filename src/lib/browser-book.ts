@@ -163,7 +163,7 @@ function openDatabase(name: string, version: number, upgrade: (db: IDBDatabase) 
 }
 
 function put(db: IDBDatabase, store: string, value: unknown, key?: IDBValidKey): Promise<void> {
-  return run(db, store, "readwrite", (objectStore) => objectStore.put(value, key))
+  return run(db, store, "readwrite", (objectStore) => objectStore.put(value, key)).then(() => undefined)
 }
 
 function get<T>(db: IDBDatabase, store: string, key: IDBValidKey): Promise<T | null> {
