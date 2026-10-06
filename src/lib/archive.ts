@@ -1,3 +1,4 @@
+import { listStoredPeriods, readStoredPeriod, saveStoredPeriod } from "@/lib/browser-book"
 import { sameClient } from "@/lib/clients"
 import type { Statement } from "@/lib/trial"
 
@@ -32,6 +33,35 @@ export function formatSavedAt(iso: string): string {
 }
 
 export async function saveArchive(statement: Statement, pdf: ArrayBuffer): Promise<ArchiveMeta> {
+  if (!browserBook()) return saveRemoteArchive(statement, pdf)
+  const stored = await saveStoredPeriod(statement, pdf.slice(0), [...PERIOD_FORMS])
+  void saveRemoteArchive(statement, pdf).catch(() => undefined)
+  return stored
+}
+
+export async function listArchive(): Promise<ArchiveMeta[]> {
+  const remote = await listRemoteArchive().catch(() => [] as ArchiveMeta[])
+  if (!browserBook()) return remote
+  const local = await listStoredPeriods()
+  const seen = new Set(local.map((item) => item.id))
+  return [...local, ...remote.filter((item) => !seen.has(item.id))].sort((left, right) =>
+    right.savedAt.localeCompare(left.savedAt),
+  )
+}
+
+export async function readArchive(id: string): Promise<{ statement: Statement; pdf: ArrayBuffer; sourceName: string }> {
+  if (browserBook()) {
+    const stored = await readStoredPeriod(id)
+    if (stored) return stored
+  }
+  return readRemoteArchive(id)
+}
+
+function browserBook(): boolean {
+  return typeof indexedDB !== "undefined"
+}
+
+async function saveRemoteArchive(statement: Statement, pdf: ArrayBuffer): Promise<ArchiveMeta> {
   const body = new FormData()
   const name = statement.sourceName || "bruto-bilanca.pdf"
   body.set("statement", JSON.stringify(statement))
@@ -44,13 +74,13 @@ export async function saveArchive(statement: Statement, pdf: ArrayBuffer): Promi
   return data
 }
 
-export async function listArchive(): Promise<ArchiveMeta[]> {
+async function listRemoteArchive(): Promise<ArchiveMeta[]> {
   const response = await fetch("/api/arhiv", { cache: "no-store" })
   if (!response.ok) throw new Error("Arhiva ni bilo mogoče odpreti.")
   return (await response.json()) as ArchiveMeta[]
 }
 
-export async function readArchive(id: string): Promise<{ statement: Statement; pdf: ArrayBuffer; sourceName: string }> {
+async function readRemoteArchive(id: string): Promise<{ statement: Statement; pdf: ArrayBuffer; sourceName: string }> {
   const [statementResponse, pdfResponse] = await Promise.all([
     fetch(`/api/arhiv/${id}`, { cache: "no-store" }),
     fetch(`/api/arhiv/${id}/pdf`, { cache: "no-store" }),

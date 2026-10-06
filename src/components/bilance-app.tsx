@@ -29,6 +29,7 @@ import {
   type ArchiveMeta,
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
+import { readDraft, readStoredFormulas, rememberStoredClient, saveDraft, writeStoredFormulas, listStoredClients } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
   clientKey,
@@ -156,9 +157,7 @@ export function BilanceApp() {
     void listArchive()
       .then(setArchiveItems)
       .catch(() => setArchiveItems([]))
-    void listClients()
-      .then(setClients)
-      .catch(() => setClients([SAMPLE_CLIENT]))
+    void refreshClients()
   }, [])
 
   function cacheWorkspace(workspace: Workspace) {
@@ -203,11 +202,17 @@ export function BilanceApp() {
   }
 
   async function refreshClients() {
+    const local = await listStoredClients().catch(() => [] as string[])
+    let remote: string[] = []
     try {
-      setClients(await listClients())
+      remote = await listClients()
     } catch {
-      setClients((current) => mergeClients(current))
+      remote = []
     }
+    for (const name of remote) {
+      if (!sameClient(name, SAMPLE_CLIENT)) await rememberStoredClient(name).catch(() => undefined)
+    }
+    setClients(mergeClients([...local, ...remote]))
   }
 
   function filingName(company?: string): string | undefined {
@@ -235,7 +240,11 @@ export function BilanceApp() {
     try {
       const body = new FormData()
       body.set("file", file)
-      if (namedCompany) body.set("company", namedCompany)
+      if (namedCompany) {
+        body.set("company", namedCompany)
+        const savedFormulas = await readStoredFormulas(namedCompany).catch(() => [])
+        if (savedFormulas.length) body.set("formule", JSON.stringify(savedFormulas))
+      }
       const response = await fetch("/api/bruto-bilanca", { method: "POST", body })
       const data = (await response.json().catch(() => null)) as ParsedTrial | null
       if (!response.ok || !data?.statement?.company) {
@@ -272,6 +281,12 @@ export function BilanceApp() {
       requestAnimationFrame(() => {
         document.querySelector("article.print-sheet, section.print-sheet")?.scrollIntoView({ block: "start" })
       })
+      try {
+        await rememberStoredClient(named.company)
+        await saveDraft(named.company, { statement: named, pdf, pdfName: file.name, konti: data.konti ?? [] })
+      } catch {
+        setError("Bilanca je izračunana, baze stranke pa ni bilo mogoče zapisati.")
+      }
       void rememberClientName(named.company)
         .then(() => refreshClients())
         .catch(() => setClients((current) => mergeClients([...current, named.company])))
@@ -296,13 +311,16 @@ export function BilanceApp() {
     setSavingFormulas(true)
     setFormulaError(null)
     try {
+      await writeStoredFormulas(name, formule)
       const response = await fetch("/api/formule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ company: name, formule }),
       })
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null
-      if (!response.ok) throw new Error(payload?.error ?? "Formul ni bilo mogoče shraniti.")
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(payload?.error ?? "Formul ni bilo mogoče shraniti.")
+      }
       setFormulaOpen(false)
       if (file) await loadFile(file, name)
     } catch (caught) {
@@ -331,6 +349,17 @@ export function BilanceApp() {
       setArchiveItems(items)
     } catch {
       /* ob napaki ostane zadnji seznam */
+    }
+    const draft = await readDraft(name).catch(() => null)
+    if (draft) {
+      applyWorkspace({
+        statement: draft.statement,
+        pdf: draft.pdf,
+        pdfName: draft.pdfName,
+        phase: "osnutek",
+        konti: draft.konti ?? [],
+      })
+      return
     }
     const latest = items.find((item) => sameClient(item.company, name))
     if (latest) {
@@ -366,6 +395,8 @@ export function BilanceApp() {
     setCreatingClient(true)
     setNewClientError(null)
     try {
+      await rememberStoredClient(name)
+      await refreshClients()
       await loadFile(newClientFile, name)
     } finally {
       setCreatingClient(false)
@@ -774,7 +805,7 @@ export function BilanceApp() {
           <DialogHeader>
             <DialogTitle className="text-2xl text-navy">Arhiv končnih bilanc</DialogTitle>
             <DialogDescription>
-              Po strankah. Pri vsakem obdobju sta shranjena izvorni PDF ter bilanca stanja in izkaz poslovnega izida.
+              Vsaka stranka hrani svoja obdobja v svoji bazi. Pri obdobju sta shranjena izvorni PDF ter oba obrazca.
             </DialogDescription>
           </DialogHeader>
           {archiveError ? (
@@ -821,7 +852,9 @@ export function BilanceApp() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-2xl text-navy">Stranke</DialogTitle>
-            <DialogDescription>Izberite stranko, za katero delate bilanco, ali dodajte novo.</DialogDescription>
+            <DialogDescription>
+              Vsaka stranka ima svojo bazo v tem brskalniku. Formule in shranjena obdobja ostanejo, tudi ko se program posodobi.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <Label htmlFor="isci-stranko">Poišči stranko</Label>
