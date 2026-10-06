@@ -403,7 +403,18 @@ export function BilanceApp() {
       period: current.period,
       currentDate: current.currentDate,
       previousDate: current.previousDate,
+      signatory: current.signatory,
     }
+  }
+
+  function editSignatory(id: string) {
+    const current = statementRef.current
+    if (current.signatory === id) return
+    const next = { ...current, signatory: id }
+    statementRef.current = next
+    setStatement(next)
+    rememberWorkspace(next)
+    persistOpenStatement(next)
   }
 
   function editPeriod(start: string, end: string) {
@@ -1004,6 +1015,7 @@ export function BilanceApp() {
             busy={busy}
             onEdit={editAmount}
             onPeriod={editPeriod}
+            onSignatory={editSignatory}
             checks={new Set(checks)}
             onToggleCheck={toggleCheck}
           />

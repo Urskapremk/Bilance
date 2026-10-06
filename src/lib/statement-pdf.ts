@@ -9,6 +9,7 @@ import { formatCents } from "@/lib/format"
 import { INCOME_LINES, rollupIncome } from "@/lib/income"
 import type { PrintJob } from "@/lib/print-job"
 import { descendantLeaves, LINES } from "@/lib/schema"
+import { signatoryById } from "@/lib/signatories"
 
 const NAVY = rgb(34 / 255, 44 / 255, 55 / 255)
 const DEEP = rgb(21 / 255, 58 / 255, 92 / 255)
@@ -99,6 +100,40 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
       color: NAVY,
     })
     y -= height
+  }
+
+  const signer = signatoryById(job.statement.signatory)
+  if (y < 96) {
+    page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
+    pages.push(page)
+    y = PAGE_HEIGHT - MARGIN
+  }
+  const lineWidth = 180
+  const lineX = PAGE_WIDTH - MARGIN - lineWidth
+  const lineY = y - 36
+  page.drawLine({
+    start: { x: lineX, y: lineY },
+    end: { x: lineX + lineWidth, y: lineY },
+    thickness: 0.6,
+    color: NAVY,
+  })
+  const nameWidth = fontBold.widthOfTextAtSize(signer.name, 10)
+  page.drawText(signer.name, {
+    x: lineX + (lineWidth - nameWidth) / 2,
+    y: lineY - 14,
+    size: 10,
+    font: fontBold,
+    color: NAVY,
+  })
+  if (signer.role) {
+    const roleWidth = font.widthOfTextAtSize(signer.role, 8)
+    page.drawText(signer.role, {
+      x: lineX + (lineWidth - roleWidth) / 2,
+      y: lineY - 26,
+      size: 8,
+      font,
+      color: MUTED,
+    })
   }
 
   pages.forEach((item, index) => {

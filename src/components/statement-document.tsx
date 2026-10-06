@@ -10,6 +10,7 @@ import { rollup, reviewColumn } from "@/lib/compute"
 import { formatCents, parseCents, parseSloveneDate, splitPeriod } from "@/lib/format"
 import { INCOME_LINES, incomeKind, rollupIncome, type IncomeLine } from "@/lib/income"
 import { LINES, descendantLeaves, isCalculated, type LineDef } from "@/lib/schema"
+import { SIGNATORIES, signatoryById } from "@/lib/signatories"
 import type { Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
@@ -21,6 +22,7 @@ export function StatementDocument({
   busy = false,
   onEdit,
   onPeriod,
+  onSignatory,
   checks,
   onToggleCheck,
 }: {
@@ -31,6 +33,7 @@ export function StatementDocument({
   busy?: boolean
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
   onPeriod?: (start: string, end: string) => void
+  onSignatory?: (id: string) => void
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
@@ -196,12 +199,55 @@ export function StatementDocument({
           </ul>
         </details>
 
+        <SignatureBlock signatoryId={statement.signatory} onSignatory={onSignatory} />
+
         <footer className="mt-8 border-t border-border pt-6 text-center text-sm text-muted-foreground print:mt-4 print:pt-3 print:text-[10.5px]">
           <p>Hnatura d.o.o. — Računovodski servis</p>
           <p className="mt-1 text-xs">Bilance · obrazec po shemi AJPES · {statement.sourceName}</p>
         </footer>
       </div>
     </article>
+  )
+}
+
+function SignatureBlock({ signatoryId, onSignatory }: { signatoryId?: string; onSignatory?: (id: string) => void }) {
+  const signer = signatoryById(signatoryId)
+  return (
+    <section className="mt-8 print:mt-6">
+      {onSignatory ? (
+        <div className="no-print">
+          <p className="text-xs font-medium tracking-[0.16em] text-gold uppercase">Podpis</p>
+          <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Podpis">
+            {SIGNATORIES.map((item) => {
+              const selected = item.id === signer.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => onSignatory(item.id)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left text-sm",
+                    selected ? "border-gold bg-accent text-navy" : "border-border bg-card text-navy hover:border-gold",
+                  )}
+                >
+                  <span className="block font-medium">{item.name}</span>
+                  {item.role ? <span className="block text-xs text-muted-foreground">{item.role}</span> : null}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+      <div className="mt-8 flex justify-end print:mt-6">
+        <div className="w-56 text-center">
+          <div className="border-b border-navy" />
+          <p className="mt-2 font-medium text-navy">{signer.name}</p>
+          {signer.role ? <p className="text-xs text-muted-foreground">{signer.role}</p> : null}
+        </div>
+      </div>
+    </section>
   )
 }
 

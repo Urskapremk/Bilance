@@ -19,6 +19,8 @@ export type Statement = {
   income: Record<string, number>
   notes: string[]
   warnings: string[]
+  /** Izbrani podpis na dnu obrazca. */
+  signatory?: string
 }
 
 type Side = "asset" | "liability"
