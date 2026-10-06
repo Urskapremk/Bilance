@@ -861,12 +861,15 @@ export function BilanceApp() {
         throw new Error(data?.error ?? "PDF ni bil ustvarjen.")
       }
       const blob = await response.blob()
+      if (!blob.size || blob.type.includes("json")) throw new Error("PDF ni bil ustvarjen.")
       const url = URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
       link.download = `${fileBase(statement, view)}.pdf`
+      document.body.appendChild(link)
       link.click()
-      URL.revokeObjectURL(url)
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "PDF ni bil ustvarjen.")
     } finally {
@@ -919,6 +922,11 @@ export function BilanceApp() {
           <FileDown />
           {exporting ? "Pripravljam PDF…" : "Kreiraj PDF"}
         </Button>
+        {error ? (
+          <p className="basis-full text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
     </div>
   )

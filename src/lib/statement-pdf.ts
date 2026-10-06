@@ -1,0 +1,228 @@
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+
+import fontkit from "@pdf-lib/fontkit"
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib"
+
+import { rollup } from "@/lib/compute"
+import { formatCents } from "@/lib/format"
+import { INCOME_LINES, rollupIncome } from "@/lib/income"
+import type { PrintJob } from "@/lib/print-job"
+import { descendantLeaves, LINES } from "@/lib/schema"
+
+const NAVY = rgb(34 / 255, 44 / 255, 55 / 255)
+const DEEP = rgb(21 / 255, 58 / 255, 92 / 255)
+const GOLD = rgb(188 / 255, 161 / 255, 105 / 255)
+const CREAM = rgb(248 / 255, 237 / 255, 216 / 255)
+const BAND = rgb(242 / 255, 245 / 255, 249 / 255)
+const WHITE = rgb(1, 1, 1)
+const MUTED = rgb(93 / 255, 100 / 255, 108 / 255)
+const LINE = rgb(221 / 255, 226 / 255, 230 / 255)
+
+const PAGE_WIDTH = 595.28
+const PAGE_HEIGHT = 841.89
+const MARGIN = 36
+
+type PdfRow = {
+  label: string
+  aop: string
+  amount: string
+  depth: number
+  band: boolean
+}
+
+export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
+  const rows = job.view === "bilanca" ? balanceRows(job) : incomeRows(job)
+  const pdf = await PDFDocument.create()
+  pdf.registerFontkit(fontkit)
+  const { regular, bold } = await loadFonts()
+  const font = await pdf.embedFont(regular, { subset: true })
+  const fontBold = await pdf.embedFont(bold, { subset: true })
+  const title = job.view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"
+  const column = job.view === "bilanca" ? job.statement.currentDate : job.statement.period
+  pdf.setTitle(`${title}, ${job.statement.company}`)
+  pdf.setAuthor("Hnatura d.o.o.")
+
+  let page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
+  let y = PAGE_HEIGHT - MARGIN
+  const pages: PDFPage[] = [page]
+
+  y = drawHeader(page, font, fontBold, y, job, title)
+  y = drawTableHead(page, fontBold, y, column)
+
+  for (const row of rows) {
+    const labelWidth = 360 - row.depth * 12
+    const labelSize = row.band ? 10 : 8.5
+    const labelFont = row.band || row.depth <= 1 ? fontBold : font
+    const lines = wrap(row.label, labelFont, labelSize, labelWidth)
+    const height = Math.max(16, lines.length * 11 + 6)
+    if (y - height < 48) {
+      page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
+      pages.push(page)
+      y = PAGE_HEIGHT - MARGIN
+      y = drawTableHead(page, fontBold, y, column)
+    }
+    page.drawRectangle({
+      x: MARGIN,
+      y: y - height,
+      width: PAGE_WIDTH - MARGIN * 2,
+      height,
+      color: row.band ? BAND : WHITE,
+      borderColor: LINE,
+      borderWidth: 0.3,
+    })
+    lines.forEach((line, index) => {
+      page.drawText(line, {
+        x: MARGIN + 8 + row.depth * 12,
+        y: y - 12 - index * 11,
+        size: labelSize,
+        font: labelFont,
+        color: NAVY,
+      })
+    })
+    const aopWidth = font.widthOfTextAtSize(row.aop, 8)
+    page.drawText(row.aop, {
+      x: MARGIN + 400 - aopWidth / 2,
+      y: y - 12,
+      size: 8,
+      font,
+      color: GOLD,
+    })
+    const amountWidth = labelFont.widthOfTextAtSize(row.amount, 8.5)
+    page.drawText(row.amount, {
+      x: PAGE_WIDTH - MARGIN - 8 - amountWidth,
+      y: y - 12,
+      size: 8.5,
+      font: labelFont,
+      color: NAVY,
+    })
+    y -= height
+  }
+
+  pages.forEach((item, index) => {
+    item.drawText("Hnatura d.o.o. — Računovodski servis", {
+      x: MARGIN,
+      y: 22,
+      size: 8,
+      font,
+      color: MUTED,
+    })
+    const marker = `${index + 1} / ${pages.length}`
+    const markerWidth = font.widthOfTextAtSize(marker, 8)
+    item.drawText(marker, {
+      x: PAGE_WIDTH - MARGIN - markerWidth,
+      y: 22,
+      size: 8,
+      font,
+      color: MUTED,
+    })
+  })
+
+  return pdf.save()
+}
+
+function drawHeader(page: PDFPage, font: PDFFont, fontBold: PDFFont, y: number, job: PrintJob, title: string) {
+  page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 28, width: PAGE_WIDTH, height: 28, color: DEEP })
+  page.drawText("BILANCE", { x: MARGIN, y: PAGE_HEIGHT - 18, size: 9, font: fontBold, color: GOLD })
+  let cursor = y - 28
+  page.drawText(title, { x: MARGIN, y: cursor, size: 18, font: fontBold, color: NAVY })
+  cursor -= 16
+  page.drawText("Presečni izkazi, ocena poslovanja", { x: MARGIN, y: cursor, size: 11, font, color: GOLD })
+  cursor -= 18
+  page.drawText(job.statement.company, { x: MARGIN, y: cursor, size: 13, font: fontBold, color: NAVY })
+  cursor -= 14
+  const period = `Obdobje ${job.statement.period}. Stanje na dan ${job.statement.currentDate}.`
+  page.drawText(period, { x: MARGIN, y: cursor, size: 9, font, color: MUTED })
+  cursor -= 16
+  if (job.view === "bilanca") {
+    const current = rollup(job.statement.balance.current)
+    const assets = current["001"] ?? 0
+    const sources = current["055"] ?? 0
+    const aligned = assets === sources
+    const note = aligned
+      ? `Bilanca stanja je usklajena. Sredstva in obveznosti do virov so ${formatCents(assets)} €.`
+      : `Razlika v bilanci stanja je ${formatCents(Math.abs(assets - sources))} €.`
+    page.drawRectangle({
+      x: MARGIN,
+      y: cursor - 18,
+      width: PAGE_WIDTH - MARGIN * 2,
+      height: 24,
+      color: aligned ? CREAM : rgb(1, 0.95, 0.95),
+    })
+    page.drawText(note, { x: MARGIN + 8, y: cursor - 10, size: 9, font, color: NAVY })
+    cursor -= 32
+  }
+  return cursor
+}
+
+function drawTableHead(page: PDFPage, fontBold: PDFFont, y: number, column: string) {
+  const height = 18
+  page.drawRectangle({
+    x: MARGIN,
+    y: y - height,
+    width: PAGE_WIDTH - MARGIN * 2,
+    height,
+    color: DEEP,
+  })
+  page.drawText("POSTAVKA", { x: MARGIN + 8, y: y - 12, size: 8, font: fontBold, color: WHITE })
+  page.drawText("AOP", { x: MARGIN + 392, y: y - 12, size: 8, font: fontBold, color: WHITE })
+  const columnWidth = fontBold.widthOfTextAtSize(column, 8)
+  page.drawText(column, {
+    x: PAGE_WIDTH - MARGIN - 8 - columnWidth,
+    y: y - 12,
+    size: 8,
+    font: fontBold,
+    color: WHITE,
+  })
+  return y - height
+}
+
+function balanceRows(job: PrintJob): PdfRow[] {
+  const current = rollup(job.statement.balance.current)
+  return LINES.filter((line) => {
+    if (job.showZeros) return true
+    if ((current[line.aop] ?? 0) !== 0) return true
+    return descendantLeaves(line.aop).some((aop) => (current[aop] ?? 0) !== 0)
+  }).map((line) => ({
+    label: line.label,
+    aop: line.aop,
+    amount: formatCents(current[line.aop] ?? 0),
+    depth: line.depth,
+    band: line.depth === 0,
+  }))
+}
+
+function incomeRows(job: PrintJob): PdfRow[] {
+  const values = rollupIncome(job.statement.income)
+  return INCOME_LINES.filter((line) => job.showZeros || (values[line.aop] ?? 0) !== 0).map((line) => ({
+    label: line.label,
+    aop: line.aop,
+    amount: formatCents(values[line.aop] ?? 0),
+    depth: line.depth,
+    band: line.depth === 0,
+  }))
+}
+
+function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean)
+  const lines: string[] = []
+  let line = ""
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word
+    if (font.widthOfTextAtSize(next, size) <= width) {
+      line = next
+      continue
+    }
+    if (line) lines.push(line)
+    line = word
+  }
+  if (line) lines.push(line)
+  return lines.length > 0 ? lines : [""]
+}
+
+function loadFonts() {
+  return Promise.all([
+    readFile(path.join(process.cwd(), "src/lib/fonts/DejaVuSans.ttf")),
+    readFile(path.join(process.cwd(), "src/lib/fonts/DejaVuSans-Bold.ttf")),
+  ]).then(([regular, bold]) => ({ regular, bold }))
+}
