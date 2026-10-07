@@ -98,7 +98,7 @@ export function BilanceApp() {
   const [cardBusy, setCardBusy] = useState(false)
   const [taxBusy, setTaxBusy] = useState(false)
   const [recalcBusy, setRecalcBusy] = useState(false)
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState<"one" | "both" | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
@@ -1033,14 +1033,18 @@ export function BilanceApp() {
     window.print()
   }
 
-  async function createPdf() {
-    setExporting(true)
+  async function createPdf(scope: "one" | "both" = "one") {
+    setExporting(scope)
     setError(null)
     try {
       const response = await fetch("/api/pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ statement, view, showZeros }),
+        body: JSON.stringify({
+          statement,
+          view: scope === "both" ? "oba" : view,
+          showZeros,
+        }),
       })
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null
@@ -1051,7 +1055,7 @@ export function BilanceApp() {
       const url = URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
-      link.download = `${fileBase(statement, view)}.pdf`
+      link.download = scope === "both" ? `${bothFileBase(statement)}.pdf` : `${fileBase(statement, view)}.pdf`
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -1059,7 +1063,7 @@ export function BilanceApp() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "PDF ni bil ustvarjen.")
     } finally {
-      setExporting(false)
+      setExporting(null)
     }
   }
 
@@ -1104,9 +1108,13 @@ export function BilanceApp() {
           <Printer />
           Natisni
         </Button>
-        <Button type="button" onClick={() => void createPdf()} disabled={exporting}>
+        <Button type="button" onClick={() => void createPdf("one")} disabled={exporting !== null}>
           <FileDown />
-          {exporting ? "Pripravljam PDF…" : "Kreiraj PDF"}
+          {exporting === "one" ? "Pripravljam PDF…" : "Kreiraj PDF"}
+        </Button>
+        <Button type="button" onClick={() => void createPdf("both")} disabled={exporting !== null}>
+          <FileDown />
+          {exporting === "both" ? "Pripravljam PDF…" : "PDF obeh"}
         </Button>
         {error ? (
           <p className="basis-full text-sm text-destructive" role="alert">
@@ -1691,6 +1699,10 @@ export function BilanceApp() {
 function fileBase(statement: Statement, view: View) {
   const kind = view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"
   return `${kind}, presečni izkazi ${statement.company} ${statement.currentDate}`
+}
+
+function bothFileBase(statement: Statement) {
+  return `Bilanca stanja in izkaz poslovnega izida, ${statement.company} ${statement.currentDate}`
 }
 
 function Tab({

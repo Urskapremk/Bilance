@@ -3,7 +3,7 @@ import test from "node:test"
 
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs"
 
-import { renderStatementPdf } from "./statement-pdf.ts"
+import { renderBothStatementsPdf, renderStatementPdf } from "./statement-pdf.ts"
 import type { Statement } from "./trial.ts"
 
 const statement: Statement = {
@@ -52,6 +52,28 @@ test("izpis bilance je PDF z družbo, ki ima šumnike", async () => {
   const namedText = await namedPage.getTextContent()
   const namedJoined = namedText.items.map((item) => ("str" in item ? item.str : "")).join(" ")
   assert.match(namedJoined, /Izkazi/)
+  assert.doesNotMatch(joined, /usklajena/)
+  assert.doesNotMatch(joined, /Kljukica/)
+})
+
+test("oba izkaza sta v enem PDF", async () => {
+  const pdf = await renderBothStatementsPdf({ statement, showZeros: false })
+  assert.equal(Buffer.from(pdf.subarray(0, 5)).toString(), "%PDF-")
+  assert.ok(pdf.byteLength > 2000)
+  const doc = await getDocument({ data: new Uint8Array(pdf), disableWorker: true }).promise
+  assert.ok(doc.numPages >= 2)
+  let joined = ""
+  for (let index = 1; index <= doc.numPages; index += 1) {
+    const page = await doc.getPage(index)
+    const text = await page.getTextContent()
+    joined += `${text.items.map((item) => ("str" in item ? item.str : "")).join(" ")}\n`
+  }
+  const balanceAt = joined.indexOf("Bilanca stanja")
+  const incomeAt = joined.indexOf("Izkaz poslovnega izida")
+  assert.ok(balanceAt >= 0)
+  assert.ok(incomeAt > balanceAt)
+  assert.match(joined, /BLIŠČ d\.o\.o\./)
+  assert.match(joined, /Presečni izkazi/)
   assert.doesNotMatch(joined, /usklajena/)
   assert.doesNotMatch(joined, /Kljukica/)
 })

@@ -34,20 +34,44 @@ type PdfRow = {
 }
 
 export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
-  const rows = job.view === "bilanca" ? balanceRows(job) : incomeRows(job)
+  const ready = await preparePdf()
+  const title = job.view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"
+  ready.pdf.setTitle(`${title}, ${job.statement.company}`)
+  ready.pdf.setAuthor("Hnatura d.o.o.")
+  appendStatement(ready.pdf, ready.font, ready.fontBold, job)
+  stampPages(ready.pdf, ready.font)
+  return ready.pdf.save()
+}
+
+export async function renderBothStatementsPdf(input: {
+  statement: PrintJob["statement"]
+  showZeros: boolean
+}): Promise<Uint8Array> {
+  const ready = await preparePdf()
+  ready.pdf.setTitle(`Bilanca stanja in izkaz poslovnega izida, ${input.statement.company}`)
+  ready.pdf.setAuthor("Hnatura d.o.o.")
+  appendStatement(ready.pdf, ready.font, ready.fontBold, { ...input, view: "bilanca" })
+  appendStatement(ready.pdf, ready.font, ready.fontBold, { ...input, view: "izkaz" })
+  stampPages(ready.pdf, ready.font)
+  return ready.pdf.save()
+}
+
+async function preparePdf() {
   const pdf = await PDFDocument.create()
   pdf.registerFontkit(fontkit)
   const { regular, bold } = await loadFonts()
   const font = await pdf.embedFont(regular, { subset: true })
   const fontBold = await pdf.embedFont(bold, { subset: true })
+  return { pdf, font, fontBold }
+}
+
+function appendStatement(pdf: PDFDocument, font: PDFFont, fontBold: PDFFont, job: PrintJob) {
+  const rows = job.view === "bilanca" ? balanceRows(job) : incomeRows(job)
   const title = job.view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"
   const column = job.view === "bilanca" ? job.statement.currentDate : job.statement.period
-  pdf.setTitle(`${title}, ${job.statement.company}`)
-  pdf.setAuthor("Hnatura d.o.o.")
 
   let page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
   let y = PAGE_HEIGHT - MARGIN
-  const pages: PDFPage[] = [page]
 
   y = drawHeader(page, font, fontBold, y, job, title)
   y = drawTableHead(page, fontBold, y, column)
@@ -60,7 +84,6 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
     const height = Math.max(16, lines.length * 11 + 6)
     if (y - height < 48) {
       page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
-      pages.push(page)
       y = PAGE_HEIGHT - MARGIN
       y = drawTableHead(page, fontBold, y, column)
     }
@@ -106,7 +129,6 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
   const signer = signatoryById(job.statement.signatory)
   if (y < 96) {
     page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
-    pages.push(page)
     y = PAGE_HEIGHT - MARGIN
   }
   const blockWidth = 180
@@ -130,7 +152,10 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
       color: MUTED,
     })
   }
+}
 
+function stampPages(pdf: PDFDocument, font: PDFFont) {
+  const pages = pdf.getPages()
   pages.forEach((item, index) => {
     item.drawText("Hnatura d.o.o. — Računovodski servis", {
       x: MARGIN,
@@ -149,8 +174,6 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
       color: MUTED,
     })
   })
-
-  return pdf.save()
 }
 
 function drawFittedText(
