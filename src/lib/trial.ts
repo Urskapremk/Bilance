@@ -3,6 +3,7 @@ import { attachPublicFiling, type PublicFiling } from "@/lib/ajpes-public"
 import { chart } from "@/lib/charts"
 import { rollup } from "@/lib/compute"
 import { incomeKind, postsInterestMemo, rollupIncome } from "@/lib/income"
+import type { EkarticaReport } from "@/lib/ekartica"
 import { legalFormOf, resultAops, type LegalForm } from "@/lib/legal-form"
 
 export type Statement = {
@@ -24,6 +25,8 @@ export type Statement = {
   signatory?: string
   /** Pravna oblika določa shemo AJPES. */
   legalForm?: LegalForm
+  /** Kartica eDavkov samostojnega podjetnika in obračuni prispevkov. */
+  ekartica?: EkarticaReport
 }
 
 type Side = "asset" | "liability"
@@ -88,6 +91,13 @@ export function applyCurrentAmount(
     if (result < 0) leaves["071"] = -result
   }
   return { ...statement, income, balance: { ...statement.balance, current: leaves } }
+}
+
+/** Obračuni prispevkov s kartice eDavkov zamenjajo AOP 148a pri samostojnem podjetniku. */
+export function applyEkartica(statement: Statement, report: EkarticaReport): Statement {
+  const marked = { ...statement, ekartica: report }
+  if (legalFormOf(marked) !== "sp") return marked
+  return applyCurrentAmount(marked, "izkaz", "148a", report.totalCents)
 }
 
 export function buildStatement(

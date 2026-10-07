@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { chart, descendantLeaves, isCalculated } from "@/lib/charts"
 import { rollup, reviewColumn } from "@/lib/compute"
+import { EkarticaPanel } from "@/components/ekartica-panel"
 import { formatCents, parseCents, parseSloveneDate, splitPeriod } from "@/lib/format"
 import { incomeKind, incomeLines, rollupIncome, type IncomeLine } from "@/lib/income"
 import { LEGAL_FORM_OPTIONS, legalFormOf, legalFormOption, periodResultCopy, type LegalForm } from "@/lib/legal-form"
@@ -218,6 +219,8 @@ export function StatementDocument({
             />
           )}
         </div>
+
+        {form === "sp" && statement.ekartica ? <EkarticaPanel report={statement.ekartica} /> : null}
 
         {statement.warnings.length > 0 ? (
           <ul className="mt-4 space-y-1 text-sm text-destructive" role="alert">

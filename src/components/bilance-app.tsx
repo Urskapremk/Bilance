@@ -1,6 +1,6 @@
 "use client"
 
-import { Archive, ArrowLeft, FileDown, FileUp, Printer, Save, UserPlus } from "lucide-react"
+import { Archive, ArrowLeft, FileDown, FileUp, Printer, Receipt, Save, UserPlus } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react"
 
@@ -44,7 +44,8 @@ import {
 import { trialFromText } from "@/lib/from-pdf"
 import { grafam, mappingNotes } from "@/lib/grafam"
 import { inferLegalForm, legalFormOf, type LegalForm } from "@/lib/legal-form"
-import { applyCurrentAmount, type Statement } from "@/lib/trial"
+import type { EkarticaReport } from "@/lib/ekartica"
+import { applyCurrentAmount, applyEkartica, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
 type ParsedTrial = {
@@ -93,6 +94,7 @@ export function BilanceApp() {
   const [pdfName, setPdfName] = useState(initialStatement.sourceName)
   const [linked, setLinked] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [cardBusy, setCardBusy] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -125,6 +127,7 @@ export function BilanceApp() {
   const [opened, setOpened] = useState(false)
   const [checks, setChecks] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
+  const cardInputRef = useRef<HTMLInputElement>(null)
   const newFileRef = useRef<HTMLInputElement>(null)
   const pdfUrlRef = useRef(pdfUrl)
   const draftRef = useRef<{ statement: Statement; pdf: ArrayBuffer } | null>(null)
@@ -404,14 +407,17 @@ export function BilanceApp() {
 
   function keepStatementDates(next: Statement): Statement {
     const current = statementRef.current
-    return {
+    const merged: Statement = {
       ...next,
       period: current.period,
       currentDate: current.currentDate,
       previousDate: current.previousDate,
       signatory: current.signatory,
       legalForm: next.legalForm ?? current.legalForm,
+      ekartica: current.ekartica,
     }
+    if (legalFormOf(merged) === "sp" && merged.ekartica) return applyEkartica(merged, merged.ekartica)
+    return merged
   }
 
   async function changeLegalForm(form: LegalForm) {
@@ -708,6 +714,35 @@ export function BilanceApp() {
       setFormulaError(caught instanceof Error ? caught.message : "Formul ni bilo mogoče shraniti.")
     } finally {
       setSavingFormulas(false)
+    }
+  }
+
+  async function loadCard(file: File) {
+    if (legalFormOf(statementRef.current) !== "sp") return
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setError("Dodajte datoteko PDF.")
+      return
+    }
+    setCardBusy(true)
+    setError(null)
+    try {
+      const body = new FormData()
+      body.set("file", file)
+      const response = await fetch("/api/ekartica", { method: "POST", body })
+      const data = (await response.json().catch(() => null)) as (EkarticaReport & { error?: string }) | null
+      if (!response.ok || !data || typeof data.totalCents !== "number" || !Array.isArray(data.accounts)) {
+        throw new Error(data?.error ?? "Kartice eDavkov ni bilo mogoče prebrati.")
+      }
+      const next = applyEkartica(statementRef.current, data)
+      statementRef.current = next
+      setStatement(next)
+      rememberWorkspace(next)
+      persistOpenStatement(next)
+      showView("izkaz")
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Kartice eDavkov ni bilo mogoče prebrati.")
+    } finally {
+      setCardBusy(false)
     }
   }
 
@@ -1137,15 +1172,37 @@ export function BilanceApp() {
                 event.target.value = ""
               }}
             />
+            <input
+              ref={cardInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) void loadCard(file)
+                event.target.value = ""
+              }}
+            />
             <div className="mt-4 flex flex-wrap gap-2">
               <Button
                 type="button"
                 onClick={() => choosePdf(blank ? activeClient : undefined)}
-                disabled={busy || savingArchive || creatingClient}
+                disabled={busy || cardBusy || savingArchive || creatingClient}
               >
                 <FileUp />
                 {busy ? "Berem konte…" : "Dodaj PDF"}
               </Button>
+              {!blank && legalFormOf(statement) === "sp" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => cardInputRef.current?.click()}
+                  disabled={busy || cardBusy || savingArchive || creatingClient}
+                >
+                  <Receipt />
+                  {cardBusy ? "Berem kartico…" : "Kartica eDavkov"}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

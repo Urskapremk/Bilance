@@ -52,5 +52,6 @@ export function statementForClient(statement: Statement, company: string): State
     warnings: statement.warnings,
     signatory: statement.signatory,
     legalForm: statement.legalForm,
+    ekartica: statement.ekartica,
   })
 }
