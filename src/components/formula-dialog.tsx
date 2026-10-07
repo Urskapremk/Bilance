@@ -4,7 +4,8 @@ import { X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { createPortal } from "react-dom"
 
-import { AOP_CHOICES, isSelectableAop, type AccountFormula, type AccountRow } from "@/lib/account-map"
+import { canonAop, choicesFor, isSelectableAop, type AccountFormula, type AccountRow } from "@/lib/account-map"
+import type { LegalForm } from "@/lib/legal-form"
 import { formatCents } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,6 +21,7 @@ export function FormulaDialog({
   onOpenChange,
   onConfirm,
   onPreview,
+  form = "doo",
 }: {
   open: boolean
   company: string
@@ -30,6 +32,7 @@ export function FormulaDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: (formule: AccountFormula[]) => void
   onPreview?: (choices: Record<string, string>) => void
+  form?: LegalForm
 }) {
   const panel = useRef<HTMLDivElement>(null)
   const drag = useRef<{ dx: number; dy: number } | null>(null)
@@ -106,17 +109,13 @@ export function FormulaDialog({
         onClose={() => onOpenChange(false)}
         onConfirm={onConfirm}
         onPreview={onPreview}
+        form={form}
       />
     </div>,
     document.body,
   )
 }
 
-function canonAop(value: string): string {
-  const digits = value.trim()
-  if (!/^\d+$/.test(digits)) return ""
-  return digits.padStart(3, "0")
-}
 
 function cnLabel(valid: boolean): string {
   return valid ? "mt-1 block truncate text-xs text-muted-foreground" : "mt-1 block truncate text-xs text-destructive"
@@ -138,6 +137,7 @@ function FormulaForm({
   onClose,
   onConfirm,
   onPreview,
+  form,
 }: {
   company: string
   rows: AccountRow[]
@@ -146,6 +146,7 @@ function FormulaForm({
   onClose: () => void
   onConfirm: (formule: AccountFormula[]) => void
   onPreview?: (choices: Record<string, string>) => void
+  form: LegalForm
 }) {
   const [query, setQuery] = useState("")
   const [choices, setChoices] = useState<Record<string, string>>(() =>
@@ -156,11 +157,12 @@ function FormulaForm({
   const lastCode = useRef<string | null>(null)
   const preview = useRef(onPreview)
   preview.current = onPreview
+  const catalog = useMemo(() => choicesFor(form), [form])
   const labels = useMemo(() => {
     const map = new Map<string, string>()
-    for (const choice of [...AOP_CHOICES.bilanca, ...AOP_CHOICES.izkaz]) map.set(choice.aop, choice.label)
+    for (const choice of [...catalog.bilanca, ...catalog.izkaz]) map.set(choice.aop, choice.label)
     return map
-  }, [])
+  }, [catalog])
 
   function appliedChoices() {
     return Object.fromEntries(rows.map((row) => [row.code, applied.current[row.code] ?? (canonAop(row.aop) || row.aop)]))
@@ -169,9 +171,12 @@ function FormulaForm({
   function ask(code: string, raw: string, finish: boolean) {
     if (pending && pending.code !== code) return
     const digits = raw.trim()
-    const next = /^\d{3}$/.test(digits) ? digits : finish ? canonAop(digits) : ""
+    const canon = canonAop(digits)
+    const ready = finish || /^\d{3}[a-z]?$/i.test(digits)
+    if (!ready) return
+    const next = canon
     const from = applied.current[code] ?? ""
-    if (!isSelectableAop(next) || next === from) return
+    if (!isSelectableAop(next, form) || next === from) return
     if (pending?.code === code && pending.to === next) return
     const row = rows.find((item) => item.code === code)
     setPending({
@@ -221,7 +226,7 @@ function FormulaForm({
     [rows, needle, choices],
   )
   const chosen = (code: string) => canonAop(choices[code] ?? "")
-  const missing = rows.some((row) => !isSelectableAop(chosen(row.code)))
+  const missing = rows.some((row) => !isSelectableAop(chosen(row.code), form))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5">
@@ -274,7 +279,7 @@ function FormulaForm({
                 <span className="sr-only">AOP za konto {row.code}</span>
                 <input
                   list="aop-sifrant"
-                  inputMode="numeric"
+                  inputMode="text"
                   className="h-8 w-full rounded-lg border border-input bg-background px-2 text-sm text-navy outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                   value={choices[row.code] ?? ""}
                   disabled={busy}
@@ -285,7 +290,7 @@ function FormulaForm({
                   }}
                   onBlur={(event) => ask(row.code, event.target.value, true)}
                 />
-                <span className={cnLabel(isSelectableAop(chosen(row.code)) || !(choices[row.code] ?? "").trim())}>
+                <span className={cnLabel(isSelectableAop(chosen(row.code), form) || !(choices[row.code] ?? "").trim())}>
                   {labels.get(chosen(row.code)) ?? ((choices[row.code] ?? "").trim() ? "Tega AOP ni na obrazcu." : "Vpišite AOP, na primer 090.")}
                 </span>
               </label>
@@ -294,10 +299,10 @@ function FormulaForm({
         </ul>
       )}
       <datalist id="aop-sifrant">
-        {AOP_CHOICES.bilanca.map((choice) => (
+        {catalog.bilanca.map((choice) => (
           <option key={`b-${choice.aop}`} value={choice.aop} label={choice.label} />
         ))}
-        {AOP_CHOICES.izkaz.map((choice) => (
+        {catalog.izkaz.map((choice) => (
           <option key={`i-${choice.aop}`} value={choice.aop} label={choice.label} />
         ))}
       </datalist>

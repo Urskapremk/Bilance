@@ -4,11 +4,12 @@ import path from "node:path"
 import fontkit from "@pdf-lib/fontkit"
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib"
 
+import { chart, descendantLeaves } from "@/lib/charts"
 import { rollup } from "@/lib/compute"
 import { formatCents } from "@/lib/format"
-import { INCOME_LINES, rollupIncome } from "@/lib/income"
+import { incomeLines, rollupIncome } from "@/lib/income"
+import { legalFormOf, legalFormOption } from "@/lib/legal-form"
 import type { PrintJob } from "@/lib/print-job"
-import { descendantLeaves, LINES } from "@/lib/schema"
 import { signatoryById } from "@/lib/signatories"
 
 const NAVY = rgb(34 / 255, 44 / 255, 55 / 255)
@@ -161,6 +162,9 @@ function drawHeader(page: PDFPage, font: PDFFont, fontBold: PDFFont, y: number, 
   cursor -= 18
   page.drawText(job.statement.company, { x: MARGIN, y: cursor, size: 13, font: fontBold, color: NAVY })
   cursor -= 14
+  const shape = legalFormOption(legalFormOf(job.statement)).printName
+  page.drawText(shape, { x: MARGIN, y: cursor, size: 9, font, color: MUTED })
+  cursor -= 12
   const period = `Obdobje ${job.statement.period}. Stanje na dan ${job.statement.currentDate}.`
   page.drawText(period, { x: MARGIN, y: cursor, size: 9, font, color: MUTED })
   return cursor - 16
@@ -183,11 +187,12 @@ function drawTableHead(page: PDFPage, fontBold: PDFFont, y: number, column: stri
 }
 
 function balanceRows(job: PrintJob): PdfRow[] {
-  const current = rollup(job.statement.balance.current)
-  return LINES.filter((line) => {
+  const form = legalFormOf(job.statement)
+  const current = rollup(job.statement.balance.current, form)
+  return chart(form).lines.filter((line) => {
     if (job.showZeros) return true
     if ((current[line.aop] ?? 0) !== 0) return true
-    return descendantLeaves(line.aop).some((aop) => (current[aop] ?? 0) !== 0)
+    return descendantLeaves(line.aop, form).some((aop) => (current[aop] ?? 0) !== 0)
   }).map((line) => ({
     label: line.label,
     aop: line.aop,
@@ -198,8 +203,9 @@ function balanceRows(job: PrintJob): PdfRow[] {
 }
 
 function incomeRows(job: PrintJob): PdfRow[] {
-  const values = rollupIncome(job.statement.income)
-  return INCOME_LINES.filter((line) => job.showZeros || (values[line.aop] ?? 0) !== 0).map((line) => ({
+  const form = legalFormOf(job.statement)
+  const values = rollupIncome(job.statement.income, form)
+  return incomeLines(form).filter((line) => job.showZeros || (values[line.aop] ?? 0) !== 0).map((line) => ({
     label: line.label,
     aop: line.aop,
     amount: formatCents(values[line.aop] ?? 0),

@@ -1,4 +1,6 @@
-import { FORMULA_ORDER, FORMULAS, LEAF_AOPS } from "@/lib/schema"
+import { chart } from "@/lib/charts"
+import type { LegalForm } from "@/lib/legal-form"
+import { LEAF_AOPS } from "@/lib/schema"
 
 export type AmountMap = Record<string, number>
 
@@ -11,10 +13,12 @@ export function emptyAmounts(): AmountMap {
   return Object.fromEntries(LEAF_AOPS.map((aop) => [aop, 0]))
 }
 
-export function rollup(leaves: AmountMap): AmountMap {
-  const values: AmountMap = { ...emptyAmounts(), ...leaves }
-  for (const aop of FORMULA_ORDER) {
-    const formula = FORMULAS[aop]
+export function rollup(leaves: AmountMap, form: LegalForm = "doo"): AmountMap {
+  const spec = chart(form)
+  const values: AmountMap = { ...Object.fromEntries(spec.leafAops.map((aop) => [aop, 0])), ...leaves }
+  for (const aop of spec.formulaOrder) {
+    const formula = spec.formulas[aop]
+    if (!formula) continue
     let sum = 0
     for (const id of formula.add) sum += values[id] ?? 0
     for (const id of formula.sub ?? []) sum -= values[id] ?? 0

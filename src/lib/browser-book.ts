@@ -1,6 +1,7 @@
 import type { AccountFormula, AccountRow } from "@/lib/account-map"
 import { mergeFormulas } from "@/lib/account-map"
 import { clientKey, normalizeClientName, sameClient, SAMPLE_CLIENT } from "@/lib/clients"
+import { parseLegalForm, type LegalForm } from "@/lib/legal-form"
 import type { Statement } from "@/lib/trial"
 
 export const REGISTRY_DATABASE = "bilance-stranke"
@@ -29,6 +30,7 @@ type ClientRow = {
   key: string
   name: string
   createdAt: string
+  legalForm?: LegalForm
 }
 
 export function clientDatabaseName(company: string): string {
@@ -42,19 +44,36 @@ export async function listStoredClients(): Promise<string[]> {
   return rows.map((row) => row.name).filter((name) => name && !sameClient(name, SAMPLE_CLIENT))
 }
 
-export async function rememberStoredClient(name: string): Promise<string> {
+export async function rememberStoredClient(name: string, legalForm?: LegalForm | null): Promise<string> {
   const clean = normalizeClientName(name)
   if (!clean || sameClient(clean, SAMPLE_CLIENT)) return SAMPLE_CLIENT
   const db = await openRegistry()
   const rows = await getAll<ClientRow>(db, "stranke")
   const existing = rows.find((row) => sameClient(row.name, clean))
+  const form = parseLegalForm(legalForm)
   if (!existing) {
-    await put(db, "stranke", { key: clientKey(clean), name: clean, createdAt: new Date().toISOString() })
+    await put(db, "stranke", {
+      key: clientKey(clean),
+      name: clean,
+      createdAt: new Date().toISOString(),
+      ...(form ? { legalForm: form } : {}),
+    })
+  } else if (form && existing.legalForm !== form) {
+    await put(db, "stranke", { ...existing, legalForm: form })
   }
   db.close()
   const book = await openClient(existing?.name ?? clean)
   book.close()
   return existing?.name ?? clean
+}
+
+export async function readStoredLegalForm(company: string): Promise<LegalForm | null> {
+  if (!company || sameClient(company, SAMPLE_CLIENT)) return null
+  const db = await openRegistry()
+  const rows = await getAll<ClientRow>(db, "stranke")
+  db.close()
+  const existing = rows.find((row) => sameClient(row.name, company))
+  return parseLegalForm(existing?.legalForm)
 }
 
 export async function readStoredFormulas(company: string): Promise<AccountFormula[]> {

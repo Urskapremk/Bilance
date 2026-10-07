@@ -5,6 +5,7 @@ import { mergeFormulas, normalizeFormulas } from "@/lib/account-map"
 import { normalizeClientName, statementForClient } from "@/lib/clients"
 import { readFormulas } from "@/lib/formulas-disk"
 import { statementFromPdf, trialFromText } from "@/lib/from-pdf"
+import { inferLegalForm, parseLegalForm } from "@/lib/legal-form"
 import { pdfToText } from "@/lib/pdf-lines"
 import { TrialBalanceError } from "@/lib/trial"
 
@@ -40,12 +41,18 @@ export async function POST(request: Request) {
       return Response.json({ error: "Formul kontov ne prepoznam." }, { status: 400 })
     }
   }
+  const oblika =
+    parseLegalForm(form.get("oblika")) ?? inferLegalForm(company) ?? "doo"
   try {
     const text = await pdfToText(new Uint8Array(await file.arrayBuffer()))
-    const probe = trialFromText(text, file.name)
+    const probe = trialFromText(text, file.name, [], oblika)
     const name = company || probe.statement.company
+    const shape = parseLegalForm(form.get("oblika")) ?? inferLegalForm(name) ?? oblika
     const formulas = mergeFormulas(await readFormulas(name), posted)
-    const parsed = formulas.length > 0 ? trialFromText(text, file.name, formulas) : probe
+    const parsed =
+      formulas.length > 0 || shape !== oblika
+        ? trialFromText(text, file.name, formulas, shape)
+        : probe
     return Response.json({
       statement: statementForClient(parsed.statement, name),
       vprasanja: parsed.vprasanja,

@@ -1,5 +1,7 @@
-import { INCOME_LINES, incomeKind } from "@/lib/income"
-import { isCalculated, LEAF_AOPS, LINE_BY_AOP } from "@/lib/schema"
+import { chart } from "@/lib/charts"
+import { incomeKind, incomeLines } from "@/lib/income"
+import type { LegalForm } from "@/lib/legal-form"
+import { LINE_BY_AOP, LEAF_AOPS } from "@/lib/schema"
 
 export type AccountFormula = {
   code: string
@@ -35,13 +37,21 @@ export function matchFormula(code: string, formulas: AccountFormula[]): AccountF
   return best
 }
 
-export function isBalanceLeaf(aop: string): boolean {
-  const line = LINE_BY_AOP[aop]
-  return Boolean(line && !isCalculated(aop))
+export function canonAop(value: string): string {
+  const match = /^(\d+)([a-z])?$/i.exec(value.trim())
+  if (!match?.[1]) return ""
+  return `${match[1].padStart(3, "0")}${match[2]?.toLowerCase() ?? ""}`
 }
 
-export function isSelectableAop(aop: string): boolean {
-  return isBalanceLeaf(aop) || incomeKind(aop) !== null
+export function isBalanceLeaf(aop: string, form: LegalForm = "doo"): boolean {
+  const spec = chart(form)
+  const line = spec.lineByAop[aop]
+  return Boolean(line && !(aop in spec.formulas))
+}
+
+export function isSelectableAop(aop: string, form?: LegalForm): boolean {
+  if (form) return isBalanceLeaf(aop, form) || incomeKind(aop, form) !== null
+  return (["doo", "drustvo", "zavod", "sp"] as const).some((item) => isSelectableAop(aop, item))
 }
 
 export function normalizeFormulas(input: unknown): AccountFormula[] {
@@ -53,7 +63,7 @@ export function normalizeFormulas(input: unknown): AccountFormula[] {
     const code = typeof record.code === "string" ? record.code.trim() : ""
     const rawAop = typeof record.aop === "string" ? record.aop.trim() : ""
     if (!/^\d{3,12}$/.test(code)) continue
-    const aop = /^\d+$/.test(rawAop) ? rawAop.padStart(3, "0") : ""
+    const aop = canonAop(rawAop)
     if (!isSelectableAop(aop)) continue
     const next = { code, aop }
     const index = out.findIndex((formula) => formula.code === code)
@@ -72,23 +82,30 @@ export function formulasForEditor(
   stored: AccountFormula[],
   rows: AccountRow[],
   choices: Record<string, string>,
+  form: LegalForm = "doo",
 ): AccountFormula[] {
   const touched = new Set(rows.map((row) => row.code))
   const kept = stored.filter((formula) => !touched.has(formula.code))
   const chosen: AccountFormula[] = []
   for (const row of rows) {
-    const digits = (choices[row.code] ?? "").trim()
-    const aop = /^\d+$/.test(digits) ? digits.padStart(3, "0") : ""
-    if (!isSelectableAop(aop) || aop === row.suggested) continue
+    const aop = canonAop(choices[row.code] ?? "")
+    if (!isSelectableAop(aop, form) || aop === row.suggested) continue
     chosen.push({ code: row.code, aop })
   }
   return normalizeFormulas([...kept, ...chosen])
 }
 
+export function choicesFor(form: LegalForm = "doo"): { bilanca: AopChoice[]; izkaz: AopChoice[] } {
+  const spec = chart(form)
+  return {
+    bilanca: spec.leafAops.map((aop) => ({ aop, label: spec.lineByAop[aop]?.label ?? aop })),
+    izkaz: incomeLines(form)
+      .filter((line) => incomeKind(line.aop, form) !== null)
+      .map((line) => ({ aop: line.aop, label: line.label })),
+  }
+}
+
 export const AOP_CHOICES: { bilanca: AopChoice[]; izkaz: AopChoice[] } = {
   bilanca: LEAF_AOPS.map((aop) => ({ aop, label: LINE_BY_AOP[aop]?.label ?? aop })),
-  izkaz: INCOME_LINES.filter((line) => incomeKind(line.aop) !== null).map((line) => ({
-    aop: line.aop,
-    label: line.label,
-  })),
+  izkaz: choicesFor("doo").izkaz,
 }

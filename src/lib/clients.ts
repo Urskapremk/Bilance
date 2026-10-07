@@ -50,5 +50,7 @@ export function statementForClient(statement: Statement, company: string): State
     income: statement.income,
     notes,
     warnings: statement.warnings,
+    signatory: statement.signatory,
+    legalForm: statement.legalForm,
   })
 }

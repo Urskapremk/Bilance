@@ -1,3 +1,5 @@
+import type { LegalForm } from "@/lib/legal-form"
+
 export type IncomeLine = {
   aop: string
   label: string
@@ -133,10 +135,68 @@ const FORMULA_ORDER = [
   "178",
 ]
 
-export function rollupIncome(leaves: Record<string, number>): Record<string, number> {
+const SP_FORMULAS: Record<string, Formula> = { ...FORMULAS, "148": { add: ["148a", "148b"] } }
+
+const SP_LABELS: Record<string, string> = {
+  "151": "H. Dobiček iz poslovanja",
+  "152": "I. Izguba iz poslovanja",
+  "182": "N. Podjetnikov dohodek",
+  "183": "O. Negativni poslovni izid",
+}
+
+const DRUSTVO_LABELS: Record<string, string> = {
+  "151": "H. Presežek poslovnih prihodkov",
+  "152": "I. Presežek poslovnih odhodkov",
+  "182": "N. Presežek prihodkov",
+  "183": "O. Presežek odhodkov",
+  "184": "P. Davek od dohodkov",
+  "186": "R. Čisti presežek prihodkov",
+  "187": "S. Čisti presežek odhodkov",
+}
+
+const ZAVOD_LABELS: Record<string, string> = {
+  "151": "H. Presežek poslovnih prihodkov",
+  "152": "I. Presežek poslovnih odhodkov",
+  "182": "N. Presežek prihodkov",
+  "183": "O. Presežek odhodkov",
+  "186": "S. Čisti presežek prihodkov",
+  "187": "Š. Čisti presežek odhodkov",
+}
+
+const incomeCache = new Map<LegalForm, IncomeLine[]>()
+
+export function incomeLines(form: LegalForm = "doo"): IncomeLine[] {
+  const hit = incomeCache.get(form)
+  if (hit) return hit
+  const lines = buildIncomeLines(form)
+  incomeCache.set(form, lines)
+  return lines
+}
+
+function buildIncomeLines(form: LegalForm): IncomeLine[] {
+  if (form === "doo") return INCOME_LINES
+  const drop = form === "sp" ? new Set(["149", "150", "184", "185", "186", "187"]) : form === "drustvo" ? new Set(["185"]) : new Set<string>()
+  const labels = form === "sp" ? SP_LABELS : form === "drustvo" ? DRUSTVO_LABELS : ZAVOD_LABELS
+  const lines: IncomeLine[] = []
+  for (const line of INCOME_LINES) {
+    if (drop.has(line.aop)) continue
+    lines.push(labels[line.aop] ? { ...line, label: labels[line.aop] } : line)
+    if (form === "sp" && line.aop === "148") {
+      lines.push(
+        { aop: "148a", label: "1. Prispevki za socialno varnost podjetnika", depth: 2 },
+        { aop: "148b", label: "2. Ostali stroški", depth: 2 },
+      )
+    }
+  }
+  return lines
+}
+
+export function rollupIncome(leaves: Record<string, number>, form: LegalForm = "doo"): Record<string, number> {
   const values: Record<string, number> = { ...leaves }
+  const formulas = form === "sp" ? SP_FORMULAS : FORMULAS
   for (const aop of FORMULA_ORDER) {
-    const formula = FORMULAS[aop]
+    const formula = formulas[aop]
+    if (!formula) continue
     let sum = 0
     for (const id of formula.add) sum += values[id] ?? 0
     for (const id of formula.sub ?? []) sum -= values[id] ?? 0
@@ -156,8 +216,10 @@ export function rollupIncome(leaves: Record<string, number>): Record<string, num
     (values["181"] ?? 0)
   values["182"] = total > 0 ? total : 0
   values["183"] = total < 0 ? -total : 0
+  if (form === "sp") return values
 
-  const net = (values["182"] ?? 0) - (values["183"] ?? 0) - (values["184"] ?? 0) - (values["185"] ?? 0)
+  const deferredTax = form === "drustvo" ? 0 : (values["185"] ?? 0)
+  const net = (values["182"] ?? 0) - (values["183"] ?? 0) - (values["184"] ?? 0) - deferredTax
   values["186"] = net > 0 ? net : 0
   values["187"] = net < 0 ? -net : 0
   return values
@@ -181,11 +243,30 @@ const REVENUE_AOPS = new Set([
   "180",
 ])
 
-/** List izkaza, na katerega sme pasti konto. Seštevki in že vključene postavke niso med njimi. */
-export function incomeKind(aop: string): "expense" | "revenue" | null {
-  if (aop in FORMULAS || INCOME_MEMO.has(aop) || INCOME_RESULT.has(aop)) return null
-  if (!INCOME_LINES.some((line) => line.aop === aop)) return null
+const SP_RESULT = new Set(["151", "152", "182", "183"])
+
+function incomeFormulas(form: LegalForm): Record<string, Formula> {
+  return form === "sp" ? SP_FORMULAS : FORMULAS
+}
+
+function incomeResult(form: LegalForm): Set<string> {
+  return form === "sp" ? SP_RESULT : INCOME_RESULT
+}
+
+function kindOn(aop: string, form: LegalForm): "expense" | "revenue" | null {
+  if (aop in incomeFormulas(form) || INCOME_MEMO.has(aop) || incomeResult(form).has(aop)) return null
+  if (!incomeLines(form).some((line) => line.aop === aop)) return null
   return REVENUE_AOPS.has(aop) ? "revenue" : "expense"
+}
+
+/** List izkaza, na katerega sme pasti konto. Seštevki in že vključene postavke niso med njimi. */
+export function incomeKind(aop: string, form?: LegalForm): "expense" | "revenue" | null {
+  if (form) return kindOn(aop, form)
+  for (const item of ["doo", "drustvo", "zavod", "sp"] as const) {
+    const kind = kindOn(aop, item)
+    if (kind) return kind
+  }
+  return null
 }
 
 /** Obresti, ki so že v odhodku, se prikažejo še na AOP 167. */

@@ -6,10 +6,12 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { chart, descendantLeaves, isCalculated } from "@/lib/charts"
 import { rollup, reviewColumn } from "@/lib/compute"
 import { formatCents, parseCents, parseSloveneDate, splitPeriod } from "@/lib/format"
-import { INCOME_LINES, incomeKind, rollupIncome, type IncomeLine } from "@/lib/income"
-import { LINES, descendantLeaves, isCalculated, type LineDef } from "@/lib/schema"
+import { incomeKind, incomeLines, rollupIncome, type IncomeLine } from "@/lib/income"
+import { LEGAL_FORM_OPTIONS, legalFormOf, legalFormOption, periodResultCopy, type LegalForm } from "@/lib/legal-form"
+import { type LineDef } from "@/lib/schema"
 import { SIGNATORIES, signatoryById } from "@/lib/signatories"
 import type { Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
@@ -23,6 +25,7 @@ export function StatementDocument({
   onEdit,
   onPeriod,
   onSignatory,
+  onLegalForm,
   checks,
   onToggleCheck,
 }: {
@@ -34,11 +37,14 @@ export function StatementDocument({
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
   onPeriod?: (start: string, end: string) => void
   onSignatory?: (id: string) => void
+  onLegalForm?: (form: LegalForm) => void
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
-  const current = rollup(statement.balance.current)
-  const income = rollupIncome(statement.income)
+  const form = legalFormOf(statement)
+  const scheme = legalFormOption(form)
+  const current = rollup(statement.balance.current, form)
+  const income = rollupIncome(statement.income, form)
   const issues = reviewColumn(current, statement.currentDate)
   const assets = current["001"] ?? 0
   const sources = current["055"] ?? 0
@@ -76,8 +82,8 @@ export function StatementDocument({
           </span>
         </h1>
         <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-muted-foreground md:text-lg print:mt-2 print:text-[12px] print:leading-snug">
-          Sestavljeno iz bruto bilance {statement.company}. Shema in oznake AOP so po poenotenem
-          obrazcu AJPES za gospodarske družbe.
+          Sestavljeno iz bruto bilance {statement.company}. Shema in oznake AOP so po obrazcu AJPES za{" "}
+          {scheme.scheme}.
         </p>
       </div>
 
@@ -85,8 +91,31 @@ export function StatementDocument({
         <div className="rounded-xl border border-border bg-card p-6 md:p-8 print:p-4">
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between print:flex-row print:items-end print:justify-between print:gap-3">
             <div>
-              <p className="text-xs font-medium tracking-[0.2em] text-gold uppercase print:text-[10px]">Družba</p>
+              <p className="text-xs font-medium tracking-[0.2em] text-gold uppercase print:text-[10px]">{scheme.printName}</p>
               <h2 className="font-heading mt-1 text-3xl font-semibold text-navy print:text-[22px] print:leading-none">{statement.company}</h2>
+              {onLegalForm ? (
+                <div className="no-print mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Pravna oblika">
+                  {LEGAL_FORM_OPTIONS.map((option) => {
+                    const selected = option.id === form
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        title={option.hint}
+                        onClick={() => onLegalForm(option.id)}
+                        className={cn(
+                          "rounded-lg border px-3 py-1.5 text-left text-sm",
+                          selected ? "border-gold bg-accent text-navy" : "border-border bg-card text-navy hover:border-gold",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground print:mt-1 print:text-[10.5px] print:leading-snug">
                 Obdobje {statement.period}. Stanje na dan {statement.currentDate}. Prikazano je samo tekoče leto. Znesek
                 popravite v vrstici, seštevki se osvežijo takoj. Zneski v evrih.
@@ -109,9 +138,17 @@ export function StatementDocument({
             <Metric label="Sredstva" hint={statement.currentDate} value={current["001"] ?? 0} />
             <Metric label="Obveznosti do virov" hint={statement.currentDate} value={current["055"] ?? 0} />
             <Metric
-              label={income["187"] ? "Čista izguba obdobja" : "Čisti dobiček obdobja"}
+              label={periodResultCopy(form, Boolean(income[form === "sp" ? "183" : "187"]))}
               hint={statement.period}
-              value={income["187"] ? income["187"] : (income["186"] ?? 0)}
+              value={
+                form === "sp"
+                  ? income["183"]
+                    ? income["183"]
+                    : (income["182"] ?? 0)
+                  : income["187"]
+                    ? income["187"]
+                    : (income["186"] ?? 0)
+              }
               accent
             />
           </div>
@@ -159,6 +196,7 @@ export function StatementDocument({
         <div className="mt-4 min-w-0 overflow-hidden rounded-xl border border-border bg-card print:mt-3">
           {view === "bilanca" ? (
             <BalanceTable
+              form={form}
               company={statement.company}
               currentDate={statement.currentDate}
               current={current}
@@ -169,6 +207,7 @@ export function StatementDocument({
             />
           ) : (
             <IncomeTable
+              form={form}
               company={statement.company}
               period={statement.period}
               values={income}
@@ -203,7 +242,7 @@ export function StatementDocument({
 
         <footer className="mt-8 border-t border-border pt-6 text-center text-sm text-muted-foreground print:mt-4 print:pt-3 print:text-[10.5px]">
           <p>Hnatura d.o.o. — Računovodski servis</p>
-          <p className="mt-1 text-xs">Bilance · obrazec po shemi AJPES · {statement.sourceName}</p>
+          <p className="mt-1 text-xs">Bilance · obrazec AJPES za {scheme.scheme} · {statement.sourceName}</p>
         </footer>
       </div>
     </article>
@@ -271,6 +310,7 @@ function Metric({
 }
 
 function BalanceTable({
+  form,
   company,
   currentDate,
   current,
@@ -279,6 +319,7 @@ function BalanceTable({
   checks,
   onToggleCheck,
 }: {
+  form: LegalForm
   company: string
   currentDate: string
   current: Record<string, number>
@@ -287,10 +328,10 @@ function BalanceTable({
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
-  const rows = LINES.filter((line) => {
+  const rows = chart(form).lines.filter((line) => {
     if (showZeros) return true
     if ((current[line.aop] ?? 0) !== 0) return true
-    return descendantLeaves(line.aop).some((aop) => (current[aop] ?? 0) !== 0)
+    return descendantLeaves(line.aop, form).some((aop) => (current[aop] ?? 0) !== 0)
   })
 
   return (
@@ -315,7 +356,7 @@ function BalanceTable({
               key={line.aop}
               line={line}
               primary={current[line.aop] ?? 0}
-              editable={Boolean(onEdit) && !isCalculated(line.aop)}
+              editable={Boolean(onEdit) && !isCalculated(line.aop, form)}
               onCommit={onEdit ? (cents) => onEdit("bilanca", line.aop, cents) : undefined}
               checked={checks?.has(`bilanca:${line.aop}`) ?? false}
               onToggle={onToggleCheck ? () => onToggleCheck("bilanca", line.aop) : undefined}
@@ -328,6 +369,7 @@ function BalanceTable({
 }
 
 function IncomeTable({
+  form,
   company,
   period,
   values,
@@ -336,6 +378,7 @@ function IncomeTable({
   checks,
   onToggleCheck,
 }: {
+  form: LegalForm
   company: string
   period: string
   values: Record<string, number>
@@ -344,7 +387,7 @@ function IncomeTable({
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
-  const rows = INCOME_LINES.filter((line) => showZeros || (values[line.aop] ?? 0) !== 0)
+  const rows = incomeLines(form).filter((line) => showZeros || (values[line.aop] ?? 0) !== 0)
 
   return (
     <div className="min-w-0 overflow-x-auto">
@@ -368,7 +411,7 @@ function IncomeTable({
               key={line.aop}
               line={line}
               primary={values[line.aop] ?? 0}
-              editable={Boolean(onEdit) && incomeKind(line.aop) !== null}
+              editable={Boolean(onEdit) && incomeKind(line.aop, form) !== null}
               onCommit={onEdit ? (cents) => onEdit("izkaz", line.aop, cents) : undefined}
               checked={checks?.has(`izkaz:${line.aop}`) ?? false}
               onToggle={onToggleCheck ? () => onToggleCheck("izkaz", line.aop) : undefined}

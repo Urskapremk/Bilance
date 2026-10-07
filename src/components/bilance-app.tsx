@@ -30,7 +30,7 @@ import {
   type ArchiveMeta,
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
-import { checkMark, listStoredPeriods, readChecks, readDraft, readLastPlace, readStoredFormulas, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
+import { checkMark, listStoredPeriods, readChecks, readDraft, readLastPlace, readStoredFormulas, readStoredLegalForm, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
   clientKey,
@@ -43,6 +43,7 @@ import {
 } from "@/lib/clients"
 import { trialFromText } from "@/lib/from-pdf"
 import { grafam, mappingNotes } from "@/lib/grafam"
+import { inferLegalForm, legalFormOf, type LegalForm } from "@/lib/legal-form"
 import { applyCurrentAmount, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
@@ -81,6 +82,7 @@ const initialStatement: Statement = attachPublicFiling({
   income: { ...grafam.income },
   notes: [...mappingNotes],
   warnings: [],
+  legalForm: "doo",
 })
 
 export function BilanceApp() {
@@ -109,6 +111,8 @@ export function BilanceApp() {
   const [clientQuery, setClientQuery] = useState("")
   const [newClientOpen, setNewClientOpen] = useState(false)
   const [newClientName, setNewClientName] = useState("")
+  const [newClientForm, setNewClientForm] = useState<LegalForm | null>(null)
+  const [formTouched, setFormTouched] = useState(false)
   const [newClientFile, setNewClientFile] = useState<File | null>(null)
   const [newClientError, setNewClientError] = useState<string | null>(null)
   const [creatingClient, setCreatingClient] = useState(false)
@@ -352,6 +356,8 @@ export function BilanceApp() {
       const file = new File([pdf], name, { type: "application/pdf" })
       const body = new FormData()
       body.set("file", file)
+      const shape = legalFormOf(statementRef.current)
+      body.set("oblika", shape)
       const response = await fetch("/api/bruto-bilanca", { method: "POST", body })
       const data = (await response.json().catch(() => null)) as ParsedTrial | null
       if (!textRef.current && data?.besedilo) textRef.current = data.besedilo
@@ -371,9 +377,9 @@ export function BilanceApp() {
       setFormulaError("Bruto bilanca se še bere. Popravek se na obrazcu pokaže takoj, ko je prebrana.")
       return
     }
-    const formule = formulasForEditor(formulasRef.current, rows, choices)
+    const formule = formulasForEditor(formulasRef.current, rows, choices, legalFormOf(statementRef.current))
     try {
-      const parsed = trialFromText(text, pdfNameRef.current || "bruto-bilanca.pdf", formule)
+      const parsed = trialFromText(text, pdfNameRef.current || "bruto-bilanca.pdf", formule, legalFormOf(statementRef.current))
       const named = keepStatementDates(statementForClient(parsed.statement, activeClientRef.current || parsed.statement.company))
       formulasRef.current = formule
       statementRef.current = named
@@ -404,6 +410,43 @@ export function BilanceApp() {
       currentDate: current.currentDate,
       previousDate: current.previousDate,
       signatory: current.signatory,
+      legalForm: next.legalForm ?? current.legalForm,
+    }
+  }
+
+  async function changeLegalForm(form: LegalForm) {
+    const current = statementRef.current
+    if (legalFormOf(current) === form) {
+      if (current.legalForm === form) return
+      const marked = { ...current, legalForm: form }
+      statementRef.current = marked
+      setStatement(marked)
+      void rememberStoredClient(marked.company, form).catch(() => undefined)
+      persistOpenStatement(marked)
+      return
+    }
+    const text = textRef.current
+    if (!text) {
+      const marked = { ...current, legalForm: form }
+      statementRef.current = marked
+      setStatement(marked)
+      void rememberStoredClient(marked.company, form).catch(() => undefined)
+      persistOpenStatement(marked)
+      setError("Besedilo bruto bilance se še bere. Oblika je shranjena. Ko je besedilo tu, obliko izberite še enkrat, da se postavke razporedijo.")
+      return
+    }
+    try {
+      const parsed = trialFromText(text, pdfNameRef.current || "bruto-bilanca.pdf", formulasRef.current, form)
+      const named = keepStatementDates(statementForClient(parsed.statement, current.company))
+      statementRef.current = named
+      setStatement(named)
+      setKonti(parsed.konti)
+      setError(null)
+      rememberWorkspace(named, parsed.konti)
+      void rememberStoredClient(named.company, form).catch(() => undefined)
+      persistOpenStatement(named, parsed.konti)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Bilance za to obliko ni bilo mogoče sestaviti.")
     }
   }
 
@@ -509,7 +552,7 @@ export function BilanceApp() {
     return activeClient
   }
 
-  async function loadFile(file: File, company?: string): Promise<boolean> {
+  async function loadFile(file: File, company?: string, form?: LegalForm | null): Promise<boolean> {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       const message = "Dodajte datoteko PDF."
       if (company) setNewClientError(message)
@@ -534,6 +577,13 @@ export function BilanceApp() {
         formulasRef.current = savedFormulas
         if (savedFormulas.length) body.set("formule", JSON.stringify(savedFormulas))
       }
+      const storedForm = namedCompany ? await readStoredLegalForm(namedCompany).catch(() => null) : null
+      const openForm =
+        namedCompany && statementRef.current && sameClient(statementRef.current.company, namedCompany)
+          ? statementRef.current.legalForm
+          : undefined
+      const oblika = form ?? openForm ?? storedForm ?? (namedCompany ? inferLegalForm(namedCompany) : null)
+      if (oblika) body.set("oblika", oblika)
       const response = await fetch("/api/bruto-bilanca", { method: "POST", body })
       const data = (await response.json().catch(() => null)) as ParsedTrial | null
       if (!response.ok || !data?.statement?.company) {
@@ -576,7 +626,7 @@ export function BilanceApp() {
         document.querySelector("article.print-sheet, section.print-sheet")?.scrollIntoView({ block: "start" })
       })
       try {
-        await rememberStoredClient(named.company)
+        await rememberStoredClient(named.company, named.legalForm)
         await saveDraft(named.company, {
           statement: named,
           pdf,
@@ -615,6 +665,7 @@ export function BilanceApp() {
         formulasRef.current,
         formulaRows,
         Object.fromEntries(formule.map((formula) => [formula.code, formula.aop])),
+        legalFormOf(statementRef.current),
       )
       formulasRef.current = full
       await saveStoredFormulas(name, full)
@@ -628,7 +679,12 @@ export function BilanceApp() {
         throw new Error(payload?.error ?? "Formul ni bilo mogoče shraniti.")
       }
       if (textRef.current) {
-        const parsed = trialFromText(textRef.current, pdfNameRef.current || "bruto-bilanca.pdf", full)
+        const parsed = trialFromText(
+          textRef.current,
+          pdfNameRef.current || "bruto-bilanca.pdf",
+          full,
+          legalFormOf(statementRef.current),
+        )
         const named = keepStatementDates(statementForClient(parsed.statement, name))
         statementRef.current = named
         setStatement(named)
@@ -728,12 +784,16 @@ export function BilanceApp() {
       setNewClientError("Dodajte PDF bruto bilance.")
       return
     }
+    if (!newClientForm) {
+      setNewClientError("Izberite pravno obliko.")
+      return
+    }
     setCreatingClient(true)
     setNewClientError(null)
     try {
-      await rememberStoredClient(name)
+      await rememberStoredClient(name, newClientForm)
       await refreshClients()
-      await loadFile(newClientFile, name)
+      await loadFile(newClientFile, name, newClientForm)
     } finally {
       setCreatingClient(false)
     }
@@ -1016,6 +1076,7 @@ export function BilanceApp() {
             onEdit={editAmount}
             onPeriod={editPeriod}
             onSignatory={editSignatory}
+            onLegalForm={(form) => void changeLegalForm(form)}
             checks={new Set(checks)}
             onToggleCheck={toggleCheck}
           />
@@ -1090,6 +1151,8 @@ export function BilanceApp() {
                 variant="outline"
                 onClick={() => {
                   setNewClientName("")
+                  setNewClientForm(null)
+                  setFormTouched(false)
                   setNewClientFile(null)
                   setNewClientError(null)
                   setNewClientOpen(true)
@@ -1152,6 +1215,7 @@ export function BilanceApp() {
         onOpenChange={setFormulaOpen}
         onConfirm={(formule) => void rememberFormulas(formule)}
         onPreview={(choices) => previewChoices(formulaRows, choices)}
+        form={legalFormOf(statement)}
       />
 
       <Dialog
@@ -1311,7 +1375,10 @@ export function BilanceApp() {
                 const typed = normalizeClientName(clientQuery)
                 setClientsOpen(false)
                 setClientQuery("")
-                setNewClientName(visibleClients.length === 0 ? typed : "")
+                const seeded = visibleClients.length === 0 ? typed : ""
+                setNewClientName(seeded)
+                setNewClientForm(inferLegalForm(seeded))
+                setFormTouched(false)
                 setNewClientFile(null)
                 setNewClientError(null)
                 setNewClientOpen(true)
@@ -1345,7 +1412,8 @@ export function BilanceApp() {
           <DialogHeader>
             <DialogTitle className="text-2xl text-navy">Nova stranka</DialogTitle>
             <DialogDescription>
-              Vpišite naziv in dodajte bruto bilanco. Iz nje se sestavi nova bilanca za to stranko.
+              Vpišite naziv, izberite pravno obliko in dodajte bruto bilanco. Iz nje se sestavi bilanca po obrazcu AJPES
+              za to obliko.
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={(event) => void submitNewClient(event)}>
@@ -1357,9 +1425,53 @@ export function BilanceApp() {
                 placeholder="na primer Sever d.o.o."
                 autoComplete="organization"
                 disabled={creatingClient}
-                onChange={(event) => setNewClientName(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value
+                  setNewClientName(value)
+                  if (!formTouched) setNewClientForm(inferLegalForm(value))
+                }}
               />
             </div>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-navy">Pravna oblika</legend>
+              <div className="grid gap-2">
+                {(
+                  [
+                    ["doo", "d.o.o.", "Gospodarska družba. Kapital, rezerve in čisti dobiček."],
+                    ["drustvo", "Društvo", "Društveni sklad in revalorizacijske rezerve."],
+                    ["zavod", "Zavod", "Lastni viri, ustanovitveni vložek in presežek prihodkov."],
+                    ["sp", "Samostojni podjetnik", "Podjetnikov kapital, pritoki in odtoki, podjetnikov dohodek."],
+                  ] as const
+                ).map(([id, label, hint]) => {
+                  const selected = newClientForm === id
+                  return (
+                    <label
+                      key={id}
+                      className={cn(
+                        "flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2",
+                        selected ? "border-gold bg-accent" : "border-border bg-card",
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="pravna-oblika"
+                        className="mt-1"
+                        checked={selected}
+                        disabled={creatingClient}
+                        onChange={() => {
+                          setFormTouched(true)
+                          setNewClientForm(id)
+                        }}
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-navy">{label}</span>
+                        <span className="block text-xs text-muted-foreground">{hint}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
             <div className="space-y-2">
               <Label htmlFor="pdf-stranke">Bruto bilanca</Label>
               <input
