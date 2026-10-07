@@ -1,15 +1,22 @@
 import type { ContributionAccount, ContributionLine, EkarticaReport } from "@/lib/ekartica"
 import { formatCents } from "@/lib/format"
 
-export function EkarticaPanel({ report }: { report: EkarticaReport }) {
+export function EkarticaPanel({
+  report,
+  obracunContributionsCents,
+}: {
+  report: EkarticaReport
+  obracunContributionsCents?: number
+}) {
   return (
     <section className="no-print mt-8 rounded-xl border border-border bg-card px-5 py-5 md:px-6" aria-label="Kartica eDavkov">
       <p className="text-xs font-medium tracking-[0.16em] text-gold uppercase">Kartica eDavkov</p>
       <h3 className="font-heading mt-2 text-2xl font-semibold text-navy">Obračuni prispevkov {report.year}</h3>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         {report.holder ? `${report.holder}. ` : null}
-        Seštevek obračunov prispevkov je na izkazu poslovnega izida pod AOP 148a, Prispevki za socialno varnost
-        podjetnika: {formatCents(report.totalCents)} €. AJPES ta strošek vodi na postavki 148a.
+        {obracunContributionsCents == null
+          ? `Seštevek obračunov prispevkov je na izkazu poslovnega izida pod AOP 148a, Prispevki za socialno varnost podjetnika: ${formatCents(report.totalCents)} €. AJPES ta strošek vodi na postavki 148a.`
+          : `Na izkazu poslovnega izida je pod AOP 148a znesek prispevkov z obračuna davka, ${formatCents(obracunContributionsCents)} €. Seštevek obračunov na tej kartici je ${formatCents(report.totalCents)} € in je primerjava s kartico FURS.`}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">{report.sourceName}</p>
       <div className="mt-6 space-y-6">

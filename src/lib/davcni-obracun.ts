@@ -11,7 +11,7 @@ export type DavcniObracun = {
   revenuesCents: number
   /** Davčno priznani odhodki, kot so navedeni na obračunu. */
   recognizedExpensesCents: number
-  /** Prispevki, navedeni na obračunu. Na izkazu velja seštevek kartice eDavkov. */
+  /** Obračunani znesek prispevkov za socialno varnost. Na izkazu je to AOP 148a. */
   statedContributionsCents: number
 }
 
@@ -53,7 +53,7 @@ export function parseDavcniObracun(text: string, sourceName = "obracun-davka.pdf
   }
 }
 
-/** Davčno priznani stroški so 80 % prihodkov. Prispevki so s kartice. Od preostanka je 20 % material, ostanek so drugi stroški storitev. */
+/** Davčno priznani stroški so 80 % prihodkov. Prispevki so znesek z obračuna davka. Od preostanka je 20 % material, ostanek so drugi stroški storitev. */
 export function normiraniSplit(revenuesCents: number, contributionsCents: number): NormiraniSplit {
   const revenues = Math.round(revenuesCents)
   const recognizedCents = Math.round((revenues * 80) / 100)

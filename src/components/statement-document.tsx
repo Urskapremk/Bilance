@@ -229,7 +229,12 @@ export function StatementDocument({
         </div>
 
         {form === "sp" && statement.davcni ? <DavcniPanel statement={statement} /> : null}
-        {form === "sp" && statement.ekartica ? <EkarticaPanel report={statement.ekartica} /> : null}
+        {form === "sp" && statement.ekartica ? (
+          <EkarticaPanel
+            report={statement.ekartica}
+            obracunContributionsCents={statement.davcni?.statedContributionsCents}
+          />
+        ) : null}
 
         {statement.warnings.length > 0 ? (
           <ul className="mt-4 space-y-1 text-sm text-destructive" role="alert">

@@ -98,7 +98,7 @@ export function applyCurrentAmount(
   return { ...statement, income, balance: { ...statement.balance, current: leaves } }
 }
 
-/** Obračuni prispevkov s kartice eDavkov zamenjajo AOP 148a pri samostojnem podjetniku. */
+/** Kartica eDavkov. Pri normirancu z obračunom davka AOP 148a vzame znesek z obračuna; sicer seštevek kartice. */
 export function applyEkartica(statement: Statement, report: EkarticaReport): Statement {
   const marked = { ...statement, ekartica: report }
   if (legalFormOf(marked) !== "sp") return marked
@@ -108,12 +108,13 @@ export function applyEkartica(statement: Statement, report: EkarticaReport): Sta
 
 /**
  * Prihodki normiranca so enaki obračunu davka.
- * Stroški so 80 % prihodkov: prispevki s kartice, 20 % preostanka je material (131), ostanek so drugi stroški storitev (138).
+ * Stroški so 80 % prihodkov: prispevki so obračunani znesek z obračuna davka,
+ * 20 % preostanka je material (131), ostanek so drugi stroški storitev (138).
  */
 export function applyNormirani(statement: Statement): Statement {
   const tax = statement.davcni
   if (!tax || tax.regime !== "normirani" || legalFormOf(statement) !== "sp") return statement
-  const split = normiraniSplit(tax.revenuesCents, statement.ekartica?.totalCents ?? 0)
+  const split = normiraniSplit(tax.revenuesCents, tax.statedContributionsCents)
   let next = statement
   for (const line of incomeLines("sp")) {
     if (!incomeKind(line.aop, "sp")) continue

@@ -1,6 +1,6 @@
 "use client"
 
-import { Archive, ArrowLeft, FileDown, FileText, FileUp, Printer, Receipt, Save, UserPlus } from "lucide-react"
+import { Archive, ArrowLeft, FileDown, FileText, FileUp, Printer, Receipt, RefreshCw, Save, UserPlus } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react"
 
@@ -97,6 +97,7 @@ export function BilanceApp() {
   const [busy, setBusy] = useState(false)
   const [cardBusy, setCardBusy] = useState(false)
   const [taxBusy, setTaxBusy] = useState(false)
+  const [recalcBusy, setRecalcBusy] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -792,6 +793,24 @@ export function BilanceApp() {
     }
   }
 
+  async function recalculateNormirani() {
+    const current = statementRef.current
+    if (legalFormOf(current) !== "sp" || !current.davcni) return
+    setRecalcBusy(true)
+    setError(null)
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    try {
+      const next = applyNormirani(statementRef.current)
+      statementRef.current = next
+      setStatement(next)
+      rememberWorkspace(next)
+      persistOpenStatement(next)
+      showView("izkaz")
+    } finally {
+      setRecalcBusy(false)
+    }
+  }
+
   function choosePdf(forClient?: string) {
     uploadClientRef.current = forClient ?? null
     inputRef.current?.click()
@@ -1245,7 +1264,7 @@ export function BilanceApp() {
               <Button
                 type="button"
                 onClick={() => choosePdf(blank ? activeClient : undefined)}
-                disabled={busy || cardBusy || taxBusy || savingArchive || creatingClient}
+                disabled={busy || cardBusy || taxBusy || recalcBusy || savingArchive || creatingClient}
               >
                 <FileUp />
                 {busy ? "Berem konte…" : "Dodaj PDF"}
@@ -1255,7 +1274,7 @@ export function BilanceApp() {
                   type="button"
                   variant="outline"
                   onClick={() => cardInputRef.current?.click()}
-                  disabled={busy || cardBusy || taxBusy || savingArchive || creatingClient}
+                  disabled={busy || cardBusy || taxBusy || recalcBusy || savingArchive || creatingClient}
                 >
                   <Receipt />
                   {cardBusy ? "Berem kartico…" : "Kartica eDavkov"}
@@ -1266,10 +1285,22 @@ export function BilanceApp() {
                   type="button"
                   variant="outline"
                   onClick={() => taxInputRef.current?.click()}
-                  disabled={busy || cardBusy || taxBusy || savingArchive || creatingClient}
+                  disabled={busy || cardBusy || taxBusy || recalcBusy || savingArchive || creatingClient}
                 >
                   <FileText />
                   {taxBusy ? "Berem obračun…" : "Obračun davka"}
+                </Button>
+              ) : null}
+              {!blank && legalFormOf(statement) === "sp" && statement.davcni ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void recalculateNormirani()}
+                  disabled={busy || cardBusy || taxBusy || recalcBusy || savingArchive || creatingClient}
+                  aria-busy={recalcBusy}
+                >
+                  <RefreshCw />
+                  {recalcBusy ? "Preračunavam…" : "Preračunaj"}
                 </Button>
               ) : null}
               <Button

@@ -28,11 +28,12 @@ test("normirani stroški so 80 odstotkov prihodkov, razdeljeni na prispevke, mat
   assert.equal(tax.recognizedExpensesCents, 4_310_518)
   assert.equal(tax.statedContributionsCents, 393_115)
 
-  const split = normiraniSplit(tax.revenuesCents, 515_527)
+  const split = normiraniSplit(tax.revenuesCents, tax.statedContributionsCents)
   assert.equal(split.recognizedCents, 4_310_518)
-  assert.equal(split.contributionsCents, 515_527)
+  assert.equal(split.contributionsCents, 393_115)
+  assert.equal(split.materialCents, 783_481)
+  assert.equal(split.servicesCents, 3_133_922)
   assert.equal(split.materialCents + split.servicesCents + split.contributionsCents, split.recognizedCents)
-  assert.equal(split.materialCents, Math.round((split.recognizedCents - 515_527) * 0.2))
   assert.equal(tax.revenuesCents - split.recognizedCents, 1_077_630)
 })
 
@@ -61,20 +62,46 @@ test("obračun davka uskladi prihodke in zamenja stroške normiranca", () => {
   const tax = parseDavcniObracun(taxText, "ddd.pdf")
   const withTax: Statement = { ...statement, davcni: tax, ekartica: card(515_527) }
   const next = applyNormirani(withTax)
-  const split = normiraniSplit(tax.revenuesCents, 515_527)
-  assert.equal(next.income["112"], split.revenuesCents)
-  assert.equal(next.income["131"], split.materialCents)
-  assert.equal(next.income["138"], split.servicesCents)
-  assert.equal(next.income["148a"], 515_527)
+  assert.equal(next.income["112"], 5_388_148)
+  assert.equal(next.income["131"], 783_481)
+  assert.equal(next.income["138"], 3_133_922)
+  assert.equal(next.income["148a"], 393_115)
   assert.equal(next.income["148b"], undefined)
+  assert.equal(next.ekartica?.totalCents, 515_527)
   const rolled = rollupIncome(next.income, "sp")
-  assert.equal(rolled["126"], split.revenuesCents)
-  assert.equal(rolled["127"], split.recognizedCents)
-  assert.equal(rolled["182"], tax.revenuesCents - split.recognizedCents)
+  assert.equal(rolled["126"], 5_388_148)
+  assert.equal(rolled["127"], 4_310_518)
+  assert.equal(rolled["182"], 1_077_630)
   assert.equal(next.balance.current["070"], rolled["182"])
 })
 
-test("kartica po obračunu davka znova razdeli preostanek stroškov", () => {
+test("applyNormirani vzame statedContributionsCents z obračuna, kartica ostane primerjava", () => {
+  const tax = parseDavcniObracun(taxText, "ddd.pdf")
+  const statement = buildStatement(
+    [
+      "Karin Čemažar s.p.",
+      "Bilanca za obdobje 01.01.2025-31.12.2025",
+      "120 Kupci",
+      "0,00 0,00 1.000,00 0,00 1.000,00 0,00 1.000,00 0,00",
+      "900 Začetni kapital",
+      "0,00 700,00 0,00 0,00 0,00 700,00 0,00 700,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 400,00 0,00 400,00 0,00 400,00",
+    ].join("\n"),
+    "karin.pdf",
+    [],
+    "sp",
+  )
+  const next = applyNormirani({ ...statement, davcni: tax, ekartica: card(515_527) })
+  assert.equal(tax.statedContributionsCents, 393_115)
+  assert.equal(next.income["148a"], 393_115)
+  assert.equal(next.income["112"], 5_388_148)
+  assert.equal(next.income["131"], 783_481)
+  assert.equal(next.income["138"], 3_133_922)
+  assert.equal(next.ekartica?.totalCents, 515_527)
+})
+
+test("kartica po obračunu davka ohrani prispevke z obračuna", () => {
   const tax = parseDavcniObracun(taxText, "ddd.pdf")
   const statement = buildStatement(
     [
@@ -94,9 +121,12 @@ test("kartica po obračunu davka znova razdeli preostanek stroškov", () => {
     "sp",
   )
   const next = applyEkartica({ ...statement, davcni: tax }, card(515_527))
-  assert.equal(next.income["148a"], 515_527)
+  assert.equal(next.income["148a"], 393_115)
   assert.equal(next.income["112"], 5_388_148)
-  assert.equal((next.income["131"] ?? 0) + (next.income["138"] ?? 0) + 515_527, 4_310_518)
+  assert.equal(next.income["131"], 783_481)
+  assert.equal(next.income["138"], 3_133_922)
+  assert.equal(next.ekartica?.totalCents, 515_527)
+  assert.equal((next.income["131"] ?? 0) + (next.income["138"] ?? 0) + 393_115, 4_310_518)
 })
 
 test("obračun davka Karin Čemažar 2025 je normiran", async (t) => {

@@ -6,9 +6,10 @@ import type { Statement } from "@/lib/trial"
 export function DavcniPanel({ statement }: { statement: Statement }) {
   const tax = statement.davcni
   if (!tax) return null
-  const split = normiraniSplit(tax.revenuesCents, statement.ekartica?.totalCents ?? 0)
+  const split = normiraniSplit(tax.revenuesCents, tax.statedContributionsCents)
   const income = rollupIncome(statement.income, "sp")
   const profit = (income["182"] ?? 0) - (income["183"] ?? 0)
+  const card = statement.ekartica
   return (
     <section className="no-print mt-8 rounded-xl border border-border bg-card px-5 py-5 md:px-6" aria-label="Obračun davka">
       <p className="text-xs font-medium tracking-[0.16em] text-gold uppercase">Obračun davka</p>
@@ -16,26 +17,22 @@ export function DavcniPanel({ statement }: { statement: Statement }) {
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         {tax.holder ? `${tax.holder}. ` : null}
         Prihodki v poslovnem izidu so {formatCents(split.revenuesCents)} €, enako kot na obračunu davka. Davčno priznani
-        stroški so 80 % prihodkov, {formatCents(split.recognizedCents)} €. Od tega so prispevki s kartice eDavkov. Od
-        preostanka je 20 % stroškov materiala, ostanek so drugi stroški storitev.
+        stroški so 80 % prihodkov, {formatCents(split.recognizedCents)} €. Na izkazu so prispevki za socialno varnost
+        podjetnika enaki obračunanemu znesku z obračuna davka, {formatCents(tax.statedContributionsCents)} €.
+        {card
+          ? ` Seštevek kartice eDavkov je ${formatCents(card.totalCents)} € in stoji zraven kot primerjava s kartico FURS.`
+          : " Kartica eDavkov doda seštevek obračunov kot primerjavo."}{" "}
+        Od preostanka po prispevkih z obračuna je 20 % stroškov materiala, ostanek so drugi stroški storitev.
       </p>
       <dl className="mt-5 space-y-2 text-sm">
         <Row label="Prihodki, AOP 112" value={split.revenuesCents} />
         <Row label="Davčno priznani stroški, 80 %" value={split.recognizedCents} />
-        <Row label="Prispevki za socialno varnost podjetnika, AOP 148a" value={split.contributionsCents} />
+        <Row label="Prispevki z obračuna davka, AOP 148a" value={tax.statedContributionsCents} />
+        {card ? <Row label="Seštevek kartice eDavkov, primerjava" value={card.totalCents} /> : null}
         <Row label="Stroški materiala, AOP 131, 20 % preostanka" value={split.materialCents} />
         <Row label="Drugi stroški storitev, AOP 138" value={split.servicesCents} />
         <Row label="Podjetnikov dohodek" value={profit} />
       </dl>
-      {statement.ekartica ? null : (
-        <p className="mt-4 text-sm text-muted-foreground">Prispevki se vpišejo, ko naložite kartico eDavkov.</p>
-      )}
-      {tax.statedContributionsCents !== split.contributionsCents ? (
-        <p className="mt-3 text-sm text-muted-foreground">
-          Obračun davka navaja prispevke {formatCents(tax.statedContributionsCents)} €. Na izkazu je seštevek kartice
-          eDavkov.
-        </p>
-      ) : null}
       <p className="mt-3 text-xs text-muted-foreground">{tax.sourceName}</p>
     </section>
   )
