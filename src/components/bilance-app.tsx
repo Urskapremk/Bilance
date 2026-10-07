@@ -416,6 +416,7 @@ export function BilanceApp() {
       currentDate: current.currentDate,
       previousDate: current.previousDate,
       signatory: current.signatory,
+      subtitle: current.subtitle,
       legalForm: next.legalForm ?? current.legalForm,
       ekartica: current.ekartica,
       davcni: current.davcni,
@@ -459,6 +460,17 @@ export function BilanceApp() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Bilance za to obliko ni bilo mogoče sestaviti.")
     }
+  }
+
+  function editSubtitle(subtitle: string | undefined) {
+    const current = statementRef.current
+    const nextValue = subtitle?.trim() || undefined
+    if ((current.subtitle?.trim() || undefined) === nextValue) return
+    const next = { ...current, subtitle: nextValue }
+    statementRef.current = next
+    setStatement(next)
+    rememberWorkspace(next)
+    persistOpenStatement(next)
   }
 
   function editSignatory(id: string) {
@@ -1145,6 +1157,7 @@ export function BilanceApp() {
             onEdit={editAmount}
             onPeriod={editPeriod}
             onSignatory={editSignatory}
+            onSubtitle={editSubtitle}
             onLegalForm={(form) => void changeLegalForm(form)}
             checks={new Set(checks)}
             onToggleCheck={toggleCheck}

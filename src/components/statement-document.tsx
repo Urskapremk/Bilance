@@ -15,6 +15,7 @@ import { incomeKind, incomeLines, rollupIncome, type IncomeLine } from "@/lib/in
 import { LEGAL_FORM_OPTIONS, legalFormOf, legalFormOption, periodResultCopy, type LegalForm } from "@/lib/legal-form"
 import { type LineDef } from "@/lib/schema"
 import { SIGNATORIES, signatoryById } from "@/lib/signatories"
+import { DEFAULT_SUBTITLE, IZKAZI_SUBTITLE, SUBTITLE_LIMIT, statementSubtitle, subtitleChoice } from "@/lib/subtitle"
 import type { Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
@@ -27,6 +28,7 @@ export function StatementDocument({
   onEdit,
   onPeriod,
   onSignatory,
+  onSubtitle,
   onLegalForm,
   checks,
   onToggleCheck,
@@ -39,12 +41,14 @@ export function StatementDocument({
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
   onPeriod?: (start: string, end: string) => void
   onSignatory?: (id: string) => void
+  onSubtitle?: (subtitle: string | undefined) => void
   onLegalForm?: (form: LegalForm) => void
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
   const form = legalFormOf(statement)
   const scheme = legalFormOption(form)
+  const subtitle = statementSubtitle(statement.subtitle)
   const current = rollup(statement.balance.current, form)
   const income = rollupIncome(statement.income, form)
   const issues = reviewColumn(current, statement.currentDate)
@@ -79,10 +83,15 @@ export function StatementDocument({
         </p>
         <h1 className="font-heading max-w-full text-4xl leading-tight font-semibold text-balance break-words text-navy md:text-5xl print:text-[28px] print:leading-tight">
           <span className="block">{view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}</span>
-          <span className="mt-3 block text-2xl font-medium text-gold md:text-3xl print:mt-1 print:text-[16px]">
-            Presečni izkazi
-          </span>
+          <span className="mt-3 block text-2xl font-medium text-gold md:text-3xl print:mt-1 print:text-[16px]">{subtitle}</span>
         </h1>
+        {onSubtitle ? (
+          <SubtitleChoice
+            key={`${statement.company}|${statement.period}|${statement.sourceName}`}
+            value={statement.subtitle}
+            onChange={onSubtitle}
+          />
+        ) : null}
         <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-muted-foreground md:text-lg print:mt-2 print:text-[12px] print:leading-snug">
           Sestavljeno iz bruto bilance {statement.company}. Shema in oznake AOP so po obrazcu AJPES za{" "}
           {scheme.scheme}.
@@ -184,9 +193,7 @@ export function StatementDocument({
 
         <h2 className="font-heading mt-8 text-2xl font-semibold text-navy print:mt-4 print:text-[18px]">
           <span className="block">{view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"}</span>
-          <span className="mt-1 block text-base font-medium text-gold print:text-[12px]">
-            Presečni izkazi
-          </span>
+          <span className="mt-1 block text-base font-medium text-gold print:text-[12px]">{subtitle}</span>
         </h2>
 
         {onToggleCheck ? (
@@ -251,6 +258,75 @@ export function StatementDocument({
         </footer>
       </div>
     </article>
+  )
+}
+
+function SubtitleChoice({ value, onChange }: { value?: string; onChange: (subtitle: string | undefined) => void }) {
+  const [own, setOwn] = useState(() => subtitleChoice(value) === "svoje")
+  const [draft, setDraft] = useState(() => (subtitleChoice(value) === "svoje" ? (value ?? "") : ""))
+  const selected = own ? "svoje" : subtitleChoice(value)
+  const options = [
+    { id: "presecni" as const, label: DEFAULT_SUBTITLE },
+    { id: "izkazi" as const, label: IZKAZI_SUBTITLE },
+    { id: "svoje" as const, label: "Svoje" },
+  ]
+  return (
+    <div className="no-print mx-auto mt-4 max-w-xl">
+      <div className="flex flex-wrap justify-center gap-2" role="radiogroup" aria-label="Napis pod naslovom">
+        {options.map((option) => {
+          const active = selected === option.id
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => {
+                if (option.id === "presecni") {
+                  setOwn(false)
+                  onChange(undefined)
+                  return
+                }
+                if (option.id === "izkazi") {
+                  setOwn(false)
+                  onChange(IZKAZI_SUBTITLE)
+                  return
+                }
+                setOwn(true)
+                const text = draft.trim().slice(0, SUBTITLE_LIMIT)
+                if (text) onChange(text)
+              }}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-sm",
+                active ? "border-gold bg-accent text-navy" : "border-border bg-card text-navy hover:border-gold",
+              )}
+            >
+              {option.label}
+            </button>
+          )
+        })}
+      </div>
+      {selected === "svoje" ? (
+        <div className="mt-3 text-left">
+          <Label htmlFor="subtitle-own" className="text-xs font-medium tracking-[0.16em] text-gold uppercase">
+            Vaš napis
+          </Label>
+          <Input
+            id="subtitle-own"
+            value={draft}
+            maxLength={SUBTITLE_LIMIT}
+            placeholder="Vpišite napis"
+            className="mt-2 bg-card"
+            onChange={(event) => {
+              const next = event.target.value.slice(0, SUBTITLE_LIMIT)
+              setDraft(next)
+              const text = next.trim()
+              onChange(text ? text : undefined)
+            }}
+          />
+        </div>
+      ) : null}
+    </div>
   )
 }
 

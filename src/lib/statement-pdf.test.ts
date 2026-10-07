@@ -31,6 +31,27 @@ test("izpis bilance je PDF z družbo, ki ima šumnike", async () => {
   assert.match(joined, /Urška Premk/)
   assert.match(joined, /Presečni izkazi/)
   assert.doesNotMatch(joined, /ocena poslovanja/)
+  const custom = await renderStatementPdf({
+    statement: { ...statement, subtitle: "Letni izkazi" },
+    view: "bilanca",
+    showZeros: false,
+  })
+  const customDoc = await getDocument({ data: new Uint8Array(custom), disableWorker: true }).promise
+  const customPage = await customDoc.getPage(1)
+  const customText = await customPage.getTextContent()
+  const customJoined = customText.items.map((item) => ("str" in item ? item.str : "")).join(" ")
+  assert.match(customJoined, /Letni izkazi/)
+  assert.doesNotMatch(customJoined, /Presečni izkazi/)
+  const named = await renderStatementPdf({
+    statement: { ...statement, subtitle: "Izkazi" },
+    view: "bilanca",
+    showZeros: false,
+  })
+  const namedDoc = await getDocument({ data: new Uint8Array(named), disableWorker: true }).promise
+  const namedPage = await namedDoc.getPage(1)
+  const namedText = await namedPage.getTextContent()
+  const namedJoined = namedText.items.map((item) => ("str" in item ? item.str : "")).join(" ")
+  assert.match(namedJoined, /Izkazi/)
   assert.doesNotMatch(joined, /usklajena/)
   assert.doesNotMatch(joined, /Kljukica/)
 })

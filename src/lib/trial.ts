@@ -24,6 +24,8 @@ export type Statement = {
   warnings: string[]
   /** Izbrani podpis na dnu obrazca. */
   signatory?: string
+  /** Napis pod naslovom. Prazen pomeni Presečni izkazi. */
+  subtitle?: string
   /** Pravna oblika določa shemo AJPES. */
   legalForm?: LegalForm
   /** Kartica eDavkov samostojnega podjetnika in obračuni prispevkov. */

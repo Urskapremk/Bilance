@@ -11,6 +11,7 @@ import { incomeLines, rollupIncome } from "@/lib/income"
 import { legalFormOf, legalFormOption } from "@/lib/legal-form"
 import type { PrintJob } from "@/lib/print-job"
 import { signatoryById } from "@/lib/signatories"
+import { statementSubtitle } from "@/lib/subtitle"
 
 const NAVY = rgb(34 / 255, 44 / 255, 55 / 255)
 const DEEP = rgb(21 / 255, 58 / 255, 92 / 255)
@@ -152,13 +153,28 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
   return pdf.save()
 }
 
+function drawFittedText(
+  page: PDFPage,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  font: PDFFont,
+  size: number,
+  color: ReturnType<typeof rgb>,
+) {
+  let used = size
+  while (used > 8 && font.widthOfTextAtSize(text, used) > maxWidth) used -= 0.5
+  page.drawText(text, { x, y, size: used, font, color })
+}
+
 function drawHeader(page: PDFPage, font: PDFFont, fontBold: PDFFont, y: number, job: PrintJob, title: string) {
   page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 28, width: PAGE_WIDTH, height: 28, color: DEEP })
   page.drawText("BILANCE", { x: MARGIN, y: PAGE_HEIGHT - 18, size: 9, font: fontBold, color: GOLD })
   let cursor = y - 28
   page.drawText(title, { x: MARGIN, y: cursor, size: 18, font: fontBold, color: NAVY })
   cursor -= 16
-  page.drawText("Presečni izkazi", { x: MARGIN, y: cursor, size: 11, font, color: GOLD })
+  drawFittedText(page, statementSubtitle(job.statement.subtitle), MARGIN, cursor, PAGE_WIDTH - MARGIN * 2, font, 11, GOLD)
   cursor -= 18
   page.drawText(job.statement.company, { x: MARGIN, y: cursor, size: 13, font: fontBold, color: NAVY })
   cursor -= 14
