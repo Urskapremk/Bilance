@@ -16,7 +16,7 @@ export function EkarticaPanel({
         {report.holder ? `${report.holder}. ` : null}
         {obracunContributionsCents == null
           ? `Seštevek obračunov prispevkov je na izkazu poslovnega izida pod AOP 148a, Prispevki za socialno varnost podjetnika: ${formatCents(report.totalCents)} €. AJPES ta strošek vodi na postavki 148a.`
-          : `Na izkazu poslovnega izida je pod AOP 148a znesek prispevkov z obračuna davka, ${formatCents(obracunContributionsCents)} €. Seštevek obračunov na tej kartici je ${formatCents(report.totalCents)} € in je primerjava s kartico FURS.`}
+          : `Dvanajstmesečni seznam obračunov ostane na tej kartici. Na izkazu poslovnega izida je pod AOP 148a znesek prispevkov z obračuna davka, ${formatCents(obracunContributionsCents)} €. Seštevek kartice eDavkov za kontrolo je ${formatCents(report.totalCents)} €.`}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">{report.sourceName}</p>
       <div className="mt-6 space-y-6">

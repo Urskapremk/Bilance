@@ -267,14 +267,16 @@ export function BilanceApp() {
           setError(null)
           setArchiveError(null)
           textRef.current = draft.besedilo ?? ""
+          const statement = withTaxContributions(draft.statement)
           applyWorkspace({
-            statement: draft.statement,
+            statement,
             pdf: draft.pdf,
             pdfName: draft.pdfName,
             phase: "osnutek",
             konti: draft.konti ?? [],
             besedilo: draft.besedilo ?? "",
           })
+          if (contributionsDrifted(draft.statement, statement)) persistOpenStatement(statement)
           if (!draft.besedilo) void hydrateText(draft.pdf, draft.pdfName)
           return
         }
@@ -407,6 +409,15 @@ export function BilanceApp() {
     setChecks(next)
     const scope = checkScope.current
     void writeChecks(scope.company, scope.period, next).catch(() => undefined)
+  }
+
+  function withTaxContributions(current: Statement): Statement {
+    if (legalFormOf(current) === "sp" && current.davcni?.regime === "normirani") return applyNormirani(current)
+    return current
+  }
+
+  function contributionsDrifted(before: Statement, after: Statement): boolean {
+    return (["112", "131", "138", "148a"] as const).some((aop) => (before.income[aop] ?? 0) !== (after.income[aop] ?? 0))
   }
 
   function keepStatementDates(next: Statement): Statement {
@@ -846,14 +857,16 @@ export function BilanceApp() {
     }
     if (draft?.statement && draft.pdf) {
       textRef.current = draft.besedilo ?? ""
+      const statement = withTaxContributions(draft.statement)
       applyWorkspace({
-        statement: draft.statement,
+        statement,
         pdf: draft.pdf,
         pdfName: draft.pdfName,
         phase: "osnutek",
         konti: draft.konti ?? [],
         besedilo: draft.besedilo ?? "",
       })
+      if (contributionsDrifted(draft.statement, statement)) persistOpenStatement(statement)
       if (!draft.besedilo) void hydrateText(draft.pdf, draft.pdfName)
       return
     }
@@ -968,16 +981,17 @@ export function BilanceApp() {
     setBusy(true)
     try {
       const stored = await readArchive(id)
+      const statement = withTaxContributions(stored.statement)
       const nextUrl = URL.createObjectURL(new Blob([stored.pdf], { type: "application/pdf" }))
       showPdf(nextUrl, stored.sourceName)
-      setStatement(stored.statement)
-      statementRef.current = stored.statement
+      setStatement(statement)
+      statementRef.current = statement
       setActiveClient(stored.statement.company)
       archiveIdRef.current = id
       archivePdfRef.current = stored.pdf.slice(0)
       textRef.current = ""
       cacheWorkspace({
-        statement: stored.statement,
+        statement,
         pdf: stored.pdf,
         pdfName: stored.sourceName,
         phase: "arhiv",
@@ -992,6 +1006,7 @@ export function BilanceApp() {
       setBlank(false)
       phaseRef.current = "arhiv"
       setPhase("arhiv")
+      if (contributionsDrifted(stored.statement, statement)) persistOpenStatement(statement)
       draftRef.current = null
       setSaveAsk(false)
       setSavedMeta(null)

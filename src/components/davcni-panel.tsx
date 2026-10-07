@@ -17,18 +17,18 @@ export function DavcniPanel({ statement }: { statement: Statement }) {
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         {tax.holder ? `${tax.holder}. ` : null}
         Prihodki v poslovnem izidu so {formatCents(split.revenuesCents)} €, enako kot na obračunu davka. Davčno priznani
-        stroški so 80 % prihodkov, {formatCents(split.recognizedCents)} €. Na izkazu so prispevki za socialno varnost
-        podjetnika enaki obračunanemu znesku z obračuna davka, {formatCents(tax.statedContributionsCents)} €.
+        stroški so 80 % prihodkov, {formatCents(split.recognizedCents)} €. Prispevki za socialno varnost podjetnika na
+        izkazu so {formatCents(split.contributionsCents)} €, enako kot na obračunu davka.
         {card
-          ? ` Seštevek kartice eDavkov je ${formatCents(card.totalCents)} € in stoji zraven kot primerjava s kartico FURS.`
-          : " Kartica eDavkov doda seštevek obračunov kot primerjavo."}{" "}
-        Od preostanka po prispevkih z obračuna je 20 % stroškov materiala, ostanek so drugi stroški storitev.
+          ? ` Seštevek kartice eDavkov za kontrolo je ${formatCents(card.totalCents)} €.`
+          : " Mesečni seznam kartice eDavkov se pokaže ob izkazu, ko kartico naložite."}{" "}
+        Od preostanka je 20 % stroškov materiala, ostanek so drugi stroški storitev.
       </p>
       <dl className="mt-5 space-y-2 text-sm">
         <Row label="Prihodki, AOP 112" value={split.revenuesCents} />
         <Row label="Davčno priznani stroški, 80 %" value={split.recognizedCents} />
         <Row label="Prispevki z obračuna davka, AOP 148a" value={tax.statedContributionsCents} />
-        {card ? <Row label="Seštevek kartice eDavkov, primerjava" value={card.totalCents} /> : null}
+        {card ? <Row label="Seštevek kartice eDavkov za kontrolo" value={card.totalCents} /> : null}
         <Row label="Stroški materiala, AOP 131, 20 % preostanka" value={split.materialCents} />
         <Row label="Drugi stroški storitev, AOP 138" value={split.servicesCents} />
         <Row label="Podjetnikov dohodek" value={profit} />
