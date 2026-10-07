@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { chart, descendantLeaves, isCalculated } from "@/lib/charts"
 import { rollup, reviewColumn } from "@/lib/compute"
+import { DavcniPanel } from "@/components/davcni-panel"
 import { EkarticaPanel } from "@/components/ekartica-panel"
 import { formatCents, parseCents, parseSloveneDate, splitPeriod } from "@/lib/format"
 import { incomeKind, incomeLines, rollupIncome, type IncomeLine } from "@/lib/income"
@@ -220,6 +221,7 @@ export function StatementDocument({
           )}
         </div>
 
+        {form === "sp" && statement.davcni ? <DavcniPanel statement={statement} /> : null}
         {form === "sp" && statement.ekartica ? <EkarticaPanel report={statement.ekartica} /> : null}
 
         {statement.warnings.length > 0 ? (

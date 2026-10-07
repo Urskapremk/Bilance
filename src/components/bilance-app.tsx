@@ -1,6 +1,6 @@
 "use client"
 
-import { Archive, ArrowLeft, FileDown, FileUp, Printer, Receipt, Save, UserPlus } from "lucide-react"
+import { Archive, ArrowLeft, FileDown, FileText, FileUp, Printer, Receipt, Save, UserPlus } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react"
 
@@ -44,8 +44,9 @@ import {
 import { trialFromText } from "@/lib/from-pdf"
 import { grafam, mappingNotes } from "@/lib/grafam"
 import { inferLegalForm, legalFormOf, type LegalForm } from "@/lib/legal-form"
+import type { DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
-import { applyCurrentAmount, applyEkartica, type Statement } from "@/lib/trial"
+import { applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
 type ParsedTrial = {
@@ -95,6 +96,7 @@ export function BilanceApp() {
   const [linked, setLinked] = useState(true)
   const [busy, setBusy] = useState(false)
   const [cardBusy, setCardBusy] = useState(false)
+  const [taxBusy, setTaxBusy] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -128,6 +130,7 @@ export function BilanceApp() {
   const [checks, setChecks] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const cardInputRef = useRef<HTMLInputElement>(null)
+  const taxInputRef = useRef<HTMLInputElement>(null)
   const newFileRef = useRef<HTMLInputElement>(null)
   const pdfUrlRef = useRef(pdfUrl)
   const draftRef = useRef<{ statement: Statement; pdf: ArrayBuffer } | null>(null)
@@ -415,7 +418,9 @@ export function BilanceApp() {
       signatory: current.signatory,
       legalForm: next.legalForm ?? current.legalForm,
       ekartica: current.ekartica,
+      davcni: current.davcni,
     }
+    if (legalFormOf(merged) === "sp" && merged.davcni?.regime === "normirani") return applyNormirani(merged)
     if (legalFormOf(merged) === "sp" && merged.ekartica) return applyEkartica(merged, merged.ekartica)
     return merged
   }
@@ -733,7 +738,7 @@ export function BilanceApp() {
       if (!response.ok || !data || typeof data.totalCents !== "number" || !Array.isArray(data.accounts)) {
         throw new Error(data?.error ?? "Kartice eDavkov ni bilo mogoče prebrati.")
       }
-      const next = applyEkartica(statementRef.current, data)
+      const next = applyEkartica({ ...statementRef.current, ekartica: data }, data)
       statementRef.current = next
       setStatement(next)
       rememberWorkspace(next)
@@ -743,6 +748,35 @@ export function BilanceApp() {
       setError(caught instanceof Error ? caught.message : "Kartice eDavkov ni bilo mogoče prebrati.")
     } finally {
       setCardBusy(false)
+    }
+  }
+
+  async function loadTax(file: File) {
+    if (legalFormOf(statementRef.current) !== "sp") return
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setError("Dodajte datoteko PDF.")
+      return
+    }
+    setTaxBusy(true)
+    setError(null)
+    try {
+      const body = new FormData()
+      body.set("file", file)
+      const response = await fetch("/api/davcni-obracun", { method: "POST", body })
+      const data = (await response.json().catch(() => null)) as (DavcniObracun & { error?: string }) | null
+      if (!response.ok || !data || data.regime !== "normirani" || typeof data.revenuesCents !== "number") {
+        throw new Error(data?.error ?? "Obračuna davka ni bilo mogoče prebrati.")
+      }
+      const next = applyNormirani({ ...statementRef.current, davcni: data })
+      statementRef.current = next
+      setStatement(next)
+      rememberWorkspace(next)
+      persistOpenStatement(next)
+      showView("izkaz")
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Obračuna davka ni bilo mogoče prebrati.")
+    } finally {
+      setTaxBusy(false)
     }
   }
 
@@ -1183,11 +1217,22 @@ export function BilanceApp() {
                 event.target.value = ""
               }}
             />
+            <input
+              ref={taxInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) void loadTax(file)
+                event.target.value = ""
+              }}
+            />
             <div className="mt-4 flex flex-wrap gap-2">
               <Button
                 type="button"
                 onClick={() => choosePdf(blank ? activeClient : undefined)}
-                disabled={busy || cardBusy || savingArchive || creatingClient}
+                disabled={busy || cardBusy || taxBusy || savingArchive || creatingClient}
               >
                 <FileUp />
                 {busy ? "Berem konte…" : "Dodaj PDF"}
@@ -1197,10 +1242,21 @@ export function BilanceApp() {
                   type="button"
                   variant="outline"
                   onClick={() => cardInputRef.current?.click()}
-                  disabled={busy || cardBusy || savingArchive || creatingClient}
+                  disabled={busy || cardBusy || taxBusy || savingArchive || creatingClient}
                 >
                   <Receipt />
                   {cardBusy ? "Berem kartico…" : "Kartica eDavkov"}
+                </Button>
+              ) : null}
+              {!blank && legalFormOf(statement) === "sp" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => taxInputRef.current?.click()}
+                  disabled={busy || cardBusy || taxBusy || savingArchive || creatingClient}
+                >
+                  <FileText />
+                  {taxBusy ? "Berem obračun…" : "Obračun davka"}
                 </Button>
               ) : null}
               <Button

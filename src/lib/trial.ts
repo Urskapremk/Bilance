@@ -2,8 +2,9 @@ import { matchFormula, type AccountFormula, type AccountRow, isBalanceLeaf, isSe
 import { attachPublicFiling, type PublicFiling } from "@/lib/ajpes-public"
 import { chart } from "@/lib/charts"
 import { rollup } from "@/lib/compute"
-import { incomeKind, postsInterestMemo, rollupIncome } from "@/lib/income"
+import { normiraniSplit, type DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
+import { incomeKind, incomeLines, postsInterestMemo, rollupIncome } from "@/lib/income"
 import { legalFormOf, resultAops, type LegalForm } from "@/lib/legal-form"
 
 export type Statement = {
@@ -27,6 +28,8 @@ export type Statement = {
   legalForm?: LegalForm
   /** Kartica eDavkov samostojnega podjetnika in obračuni prispevkov. */
   ekartica?: EkarticaReport
+  /** Obračun davka od dohodka iz dejavnosti, kadar je samostojni podjetnik normiranec. */
+  davcni?: DavcniObracun
 }
 
 type Side = "asset" | "liability"
@@ -97,7 +100,29 @@ export function applyCurrentAmount(
 export function applyEkartica(statement: Statement, report: EkarticaReport): Statement {
   const marked = { ...statement, ekartica: report }
   if (legalFormOf(marked) !== "sp") return marked
+  if (marked.davcni?.regime === "normirani") return applyNormirani(marked)
   return applyCurrentAmount(marked, "izkaz", "148a", report.totalCents)
+}
+
+/**
+ * Prihodki normiranca so enaki obračunu davka.
+ * Stroški so 80 % prihodkov: prispevki s kartice, 20 % preostanka je material (131), ostanek so drugi stroški storitev (138).
+ */
+export function applyNormirani(statement: Statement): Statement {
+  const tax = statement.davcni
+  if (!tax || tax.regime !== "normirani" || legalFormOf(statement) !== "sp") return statement
+  const split = normiraniSplit(tax.revenuesCents, statement.ekartica?.totalCents ?? 0)
+  let next = statement
+  for (const line of incomeLines("sp")) {
+    if (!incomeKind(line.aop, "sp")) continue
+    if ((next.income[line.aop] ?? 0) === 0) continue
+    next = applyCurrentAmount(next, "izkaz", line.aop, 0)
+  }
+  next = applyCurrentAmount(next, "izkaz", "112", split.revenuesCents)
+  next = applyCurrentAmount(next, "izkaz", "131", split.materialCents)
+  next = applyCurrentAmount(next, "izkaz", "138", split.servicesCents)
+  next = applyCurrentAmount(next, "izkaz", "148a", split.contributionsCents)
+  return { ...next, davcni: tax, ekartica: statement.ekartica }
 }
 
 export function buildStatement(
