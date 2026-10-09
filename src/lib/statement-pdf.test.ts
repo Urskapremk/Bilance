@@ -135,6 +135,8 @@ test("izpis ne izpiše pravne oblike pod imenom, podpis ostane na prvi strani", 
     assert.match(joined, /Obdobje/)
     assert.match(joined, /Nejc Zupanc/)
     assert.match(joined, /računovodja/)
+    assert.equal(fontName(text, "Nejc Zupanc"), fontName(text, "Bilanca stanja"))
+    assert.notEqual(fontName(text, "Nejc Zupanc"), fontName(text, "računovodja"))
   }
 
   for (const signatory of ["matic", "urska"] as const) {
@@ -149,5 +151,16 @@ test("izpis ne izpiše pravne oblike pod imenom, podpis ostane na prvi strani", 
     const joined = text.items.map((entry) => ("str" in entry ? entry.str : "")).join(" ")
     assert.match(joined, signatory === "matic" ? /Matic Premk/ : /Urška Premk/)
     assert.doesNotMatch(joined, /Gospodarska družba/)
+    if (signatory === "urska") {
+      assert.match(joined, /računovodja/)
+      assert.equal(fontName(text, "Urška Premk"), fontName(text, "računovodja"))
+      assert.notEqual(fontName(text, "Urška Premk"), fontName(text, "Bilanca stanja"))
+    } else {
+      assert.doesNotMatch(joined, /računovodja/)
+    }
   }
 })
+
+function fontName(text: { items: Array<{ str?: string; fontName?: string }> }, value: string) {
+  return text.items.find((entry) => entry.str === value)?.fontName ?? ""
+}

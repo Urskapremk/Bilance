@@ -1,7 +1,7 @@
 export const SIGNATORIES = [
   { id: "nejc", name: "Nejc Zupanc", role: "računovodja" },
   { id: "matic", name: "Matic Premk", role: "" },
-  { id: "urska", name: "Urška Premk", role: "" },
+  { id: "urska", name: "Urška Premk", role: "računovodja" },
 ] as const
 
 export type SignatoryId = (typeof SIGNATORIES)[number]["id"]

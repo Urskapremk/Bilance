@@ -134,12 +134,13 @@ function appendStatement(pdf: PDFDocument, font: PDFFont, fontBold: PDFFont, job
   const blockWidth = 180
   const blockX = PAGE_WIDTH - MARGIN - blockWidth
   const nameY = y - 28
-  const nameWidth = fontBold.widthOfTextAtSize(signer.name, 10)
+  const nameFont = signer.id === "urska" ? font : fontBold
+  const nameWidth = nameFont.widthOfTextAtSize(signer.name, 10)
   page.drawText(signer.name, {
     x: blockX + (blockWidth - nameWidth) / 2,
     y: nameY,
     size: 10,
-    font: fontBold,
+    font: nameFont,
     color: NAVY,
   })
   if (signer.role) {

@@ -358,7 +358,7 @@ function SignatureBlock({ signatoryId, onSignatory }: { signatoryId?: string; on
                     selected ? "border-gold bg-accent text-navy" : "border-border bg-card text-navy hover:border-gold",
                   )}
                 >
-                  <span className="block font-medium">{item.name}</span>
+                  <span className={cn("block", item.id === "urska" ? "font-normal" : "font-medium")}>{item.name}</span>
                   {item.role ? <span className="block text-xs text-muted-foreground">{item.role}</span> : null}
                 </button>
               )
@@ -368,7 +368,7 @@ function SignatureBlock({ signatoryId, onSignatory }: { signatoryId?: string; on
       ) : null}
       <div className="mt-8 flex justify-end print:mt-2">
         <div className="w-56 text-center">
-          <p className="font-medium text-navy">{signer.name}</p>
+          <p className={cn("text-navy", signer.id === "urska" ? "font-normal" : "font-medium")}>{signer.name}</p>
           {signer.role ? <p className="text-xs text-muted-foreground">{signer.role}</p> : null}
         </div>
       </div>
