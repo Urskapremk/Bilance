@@ -102,8 +102,8 @@ export function StatementDocument({
         <div className="rounded-xl border border-border bg-card p-6 md:p-8 print:p-4">
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between print:flex-row print:items-end print:justify-between print:gap-3">
             <div>
-              <p className="text-xs font-medium tracking-[0.2em] text-gold uppercase print:text-[10px]">{scheme.printName}</p>
-              <h2 className="font-heading mt-1 text-3xl font-semibold text-navy print:text-[22px] print:leading-none">{statement.company}</h2>
+              <p className="no-print text-xs font-medium tracking-[0.2em] text-gold uppercase">{scheme.printName}</p>
+              <h2 className="font-heading mt-1 text-3xl font-semibold text-navy print:mt-0 print:text-[22px] print:leading-none">{statement.company}</h2>
               {onLegalForm ? (
                 <div className="no-print mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Pravna oblika">
                   {LEGAL_FORM_OPTIONS.map((option) => {
@@ -338,7 +338,7 @@ function SubtitleChoice({ value, onChange }: { value?: string; onChange: (subtit
 function SignatureBlock({ signatoryId, onSignatory }: { signatoryId?: string; onSignatory?: (id: string) => void }) {
   const signer = signatoryById(signatoryId)
   return (
-    <section className="mt-8 print:mt-6">
+    <section className="print-signature mt-8 print:mt-3">
       {onSignatory ? (
         <div className="no-print">
           <p className="text-xs font-medium tracking-[0.16em] text-gold uppercase">Podpis</p>
@@ -365,7 +365,7 @@ function SignatureBlock({ signatoryId, onSignatory }: { signatoryId?: string; on
           </div>
         </div>
       ) : null}
-      <div className="mt-8 flex justify-end print:mt-6">
+      <div className="mt-8 flex justify-end print:mt-2">
         <div className="w-56 text-center">
           <p className="font-medium text-navy">{signer.name}</p>
           {signer.role ? <p className="text-xs text-muted-foreground">{signer.role}</p> : null}

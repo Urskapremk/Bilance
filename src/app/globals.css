@@ -226,4 +226,9 @@
   .statement-band {
     background: #f2f5f9 !important;
   }
+
+  .print-signature {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

@@ -8,7 +8,7 @@ import { chart, descendantLeaves } from "@/lib/charts"
 import { rollup } from "@/lib/compute"
 import { formatCents } from "@/lib/format"
 import { incomeLines, rollupIncome } from "@/lib/income"
-import { legalFormOf, legalFormOption } from "@/lib/legal-form"
+import { legalFormOf } from "@/lib/legal-form"
 import type { PrintJob } from "@/lib/print-job"
 import { signatoryById } from "@/lib/signatories"
 import { statementSubtitle } from "@/lib/subtitle"
@@ -127,7 +127,7 @@ function appendStatement(pdf: PDFDocument, font: PDFFont, fontBold: PDFFont, job
   }
 
   const signer = signatoryById(job.statement.signatory)
-  if (y < 96) {
+  if (y < 80) {
     page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
     y = PAGE_HEIGHT - MARGIN
   }
@@ -200,10 +200,7 @@ function drawHeader(page: PDFPage, font: PDFFont, fontBold: PDFFont, y: number, 
   drawFittedText(page, statementSubtitle(job.statement.subtitle), MARGIN, cursor, PAGE_WIDTH - MARGIN * 2, font, 11, GOLD)
   cursor -= 18
   page.drawText(job.statement.company, { x: MARGIN, y: cursor, size: 13, font: fontBold, color: NAVY })
-  cursor -= 14
-  const shape = legalFormOption(legalFormOf(job.statement)).printName
-  page.drawText(shape, { x: MARGIN, y: cursor, size: 9, font, color: MUTED })
-  cursor -= 12
+  cursor -= 16
   const period = `Obdobje ${job.statement.period}. Stanje na dan ${job.statement.currentDate}.`
   page.drawText(period, { x: MARGIN, y: cursor, size: 9, font, color: MUTED })
   return cursor - 16
