@@ -157,10 +157,12 @@ export function buildStatement(
     if (result < 0 && gap === result) current.leaves["071"] = -result
   }
 
+  const shown = rollup(current.leaves, form)
+  const shownGap = (shown["001"] ?? 0) - (shown["055"] ?? 0)
   const warnings = [...current.warnings, ...previous.warnings, ...income.warnings]
-  if (gap !== 0 && gap !== result) {
+  if (shownGap !== 0) {
     warnings.push(
-      `Sredstva in obveznosti do virov se razlikujejo za ${eur(gap)} €. Preverite konte, ki niso razporejeni.`,
+      `Sredstva in obveznosti do virov se razlikujejo za ${eur(Math.abs(shownGap))} €. Preverite konte, ki niso razporejeni.`,
     )
   }
 
@@ -250,7 +252,7 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
     const root = account.code.slice(0, 3)
     if (root.length < 3) {
       if (netDebit !== 0) {
-        warnings.push(`Konto ${account.code} ${account.name} ni razporejen v bilanco stanja.`)
+        warnings.push(`Konto ${account.code} ${account.name} nima svoje vrstice na bilanci.`)
       }
       continue
     }
@@ -260,7 +262,7 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
     }
     const target = balanceTarget(root, form)
     if (!target) {
-      if (netDebit !== 0) warnings.push(`Konto ${account.code} ${account.name} ni razporejen v bilanco stanja.`)
+      if (netDebit !== 0) warnings.push(`Konto ${account.code} ${account.name} nima svoje vrstice na bilanci.`)
       continue
     }
     if (target.side === "liability" && netDebit > 0 && root.startsWith("2")) {
@@ -329,7 +331,7 @@ function incomeLeaves(accounts: Account[], formulas: AccountFormula[], form: Leg
     const signed = part.turnDebit - part.turnCredit
     if (!rule) {
       if (signed !== 0) {
-        warnings.push(`Konto ${part.code} ${part.name} ni razporejen v izkaz poslovnega izida.`)
+        warnings.push(`Konto ${part.code} ${part.name} nima svoje vrstice na izkazu poslovnega izida.`)
       }
       continue
     }

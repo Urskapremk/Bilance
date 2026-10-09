@@ -7,7 +7,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { chart, descendantLeaves, isCalculated } from "@/lib/charts"
-import { rollup, reviewColumn } from "@/lib/compute"
+import { isImbalanceWarning, rollup, reviewColumn } from "@/lib/compute"
 import { DavcniPanel } from "@/components/davcni-panel"
 import { EkarticaPanel } from "@/components/ekartica-panel"
 import { formatCents, parseCents, parseSloveneDate, splitPeriod } from "@/lib/format"
@@ -55,7 +55,8 @@ export function StatementDocument({
   const assets = current["001"] ?? 0
   const sources = current["055"] ?? 0
   const aligned = assets === sources
-  const otherIssues = issues.filter((issue) => issue.severity === "error" && !issue.message.includes("AOP 001"))
+  const otherIssues = issues.filter((issue) => issue.severity === "error" && !issue.imbalance)
+  const sheetWarnings = statement.warnings.filter((warning) => !(aligned && isImbalanceWarning(warning)))
   const notes = statement.notes.filter(
     (note) => !note.includes(statement.previousDate) && !note.includes("javna objava"),
   )
@@ -236,9 +237,9 @@ export function StatementDocument({
           />
         ) : null}
 
-        {statement.warnings.length > 0 ? (
+        {sheetWarnings.length > 0 ? (
           <ul className="mt-4 space-y-1 text-sm text-destructive" role="alert">
-            {statement.warnings.map((warning) => (
+            {sheetWarnings.map((warning) => (
               <li key={warning}>{warning}</li>
             ))}
           </ul>

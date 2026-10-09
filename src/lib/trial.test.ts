@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import test from "node:test"
 
-import { rollup } from "./compute.ts"
+import { reviewColumn, rollup } from "./compute.ts"
 import { statementFromPdf } from "./from-pdf.ts"
 import { grafam } from "./grafam.ts"
 import { rollupIncome } from "./income.ts"
@@ -209,6 +209,38 @@ test("bruto bilanca Grafama se razporedi na obrazec AJPES", async () => {
   assert.equal(current["001"], current["055"])
   assert.equal(previous["001"], previous["055"])
   assert.equal(rollupIncome(statement.income)["186"], current["070"])
+})
+
+test("usklajena bilanca z dobičkom in staro izgubo nima opozorila o razliki", () => {
+  const statement = buildStatement(
+    [
+      "FORTUN d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.08.2026",
+      "120 Kupci",
+      "10.000,00 0,00 0,00 0,00 10.000,00 0,00 10.000,00 0,00",
+      "900 Osnovni kapital",
+      "0,00 8.000,00 0,00 0,00 0,00 8.000,00 0,00 8.000,00",
+      "933 Prenesena izguba",
+      "2.000,00 0,00 0,00 0,00 2.000,00 0,00 2.000,00 0,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 4.000,00 0,00 4.000,00 0,00 4.000,00",
+    ].join("\n"),
+    "fortun.pdf",
+  )
+
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"], current["055"])
+  assert.equal(statement.balance.current["070"], 400_000)
+  assert.equal(statement.balance.current["069"], 200_000)
+  assert.equal(
+    statement.warnings.some((warning) => /se razlikujejo|preverite konte|neusklajen/.test(warning)),
+    false,
+  )
+  const issues = reviewColumn(current, statement.currentDate)
+  assert.equal(
+    issues.some((issue) => issue.imbalance || issue.severity === "error"),
+    false,
+  )
 })
 
 function nonzero(values: Record<string, number>) {

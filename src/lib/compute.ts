@@ -1,4 +1,5 @@
 import { chart } from "@/lib/charts"
+import { formatCents } from "@/lib/format"
 import type { LegalForm } from "@/lib/legal-form"
 import { LEAF_AOPS } from "@/lib/schema"
 
@@ -7,6 +8,18 @@ export type AmountMap = Record<string, number>
 export type Issue = {
   severity: "error" | "warning"
   message: string
+  /** Sredstva (AOP 001) in obveznosti do virov (AOP 055) se ne ujemata. */
+  imbalance?: boolean
+}
+
+/** Besedilo, ki trdi, da sredstva in viri niso enaki. */
+export function isImbalanceWarning(message: string): boolean {
+  return (
+    message.includes("sredstva in obveznosti do virov se razlikujejo") ||
+    message.includes("sredstva (AOP 001)") ||
+    message.includes("Razlika v bilanci") ||
+    message.includes("preverite konte, ki niso razporejeni")
+  )
 }
 
 export function emptyAmounts(): AmountMap {
@@ -31,11 +44,12 @@ export function reviewColumn(values: AmountMap, column: string): Issue[] {
   const issues: Issue[] = []
   const assets = values["001"] ?? 0
   const equity = values["055"] ?? 0
-  if (assets !== equity) {
-    const gap = assets - equity
+  const balanced = assets === equity
+  if (!balanced) {
     issues.push({
       severity: "error",
-      message: `${column}: sredstva (AOP 001) niso enaka obveznostim do virov sredstev (AOP 055). Razlika je ${gap.toLocaleString("sl-SI")} €.`,
+      imbalance: true,
+      message: `${column}: sredstva in obveznosti do virov se razlikujejo za ${formatCents(Math.abs(assets - equity))} €.`,
     })
   }
 
@@ -44,7 +58,7 @@ export function reviewColumn(values: AmountMap, column: string): Issue[] {
   if (offAssets !== offEquity) {
     issues.push({
       severity: "error",
-      message: `${column}: zunajbilančna sredstva (AOP 054) niso enaka zunajbilančnim obveznostim (AOP 096).`,
+      message: `${column}: evidenca zunaj bilance se ne ujema. Ena stran ima ${formatCents(offAssets)} €, druga ${formatCents(offEquity)} €.`,
     })
   }
 
@@ -54,12 +68,12 @@ export function reviewColumn(values: AmountMap, column: string): Issue[] {
   if (profit > 0 && loss > 0) {
     issues.push({
       severity: "error",
-      message: `${column}: čisti dobiček (AOP 070) in čista izguba (AOP 071) ne moreta biti hkrati večja od nič.`,
+      message: `${column}: hkrati sta vpisana dobiček tega leta in izguba tega leta.`,
     })
-  } else if (profit > 0 && retainedLoss !== 0) {
+  } else if (!balanced && profit > 0 && retainedLoss !== 0) {
     issues.push({
       severity: "error",
-      message: `${column}: če je čisti dobiček poslovnega leta (AOP 070) večji od nič, mora biti prenesena čista izguba (AOP 069) enaka nič.`,
+      message: `${column}: hkrati sta vpisana dobiček tega leta in izguba iz prejšnjih let.`,
     })
   }
 
@@ -67,7 +81,7 @@ export function reviewColumn(values: AmountMap, column: string): Issue[] {
   if (retainedProfit > 0 && retainedLoss > 0) {
     issues.push({
       severity: "warning",
-      message: `${column}: preneseni čisti dobiček (AOP 068) in prenesena čista izguba (AOP 069) sta hkrati izpolnjena. Običajno se izkaže le eden od njiju.`,
+      message: `${column}: hkrati sta vpisana dobiček iz prejšnjih let in izguba iz prejšnjih let.`,
     })
   }
 

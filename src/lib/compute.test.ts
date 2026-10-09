@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { reviewColumn, rollup } from "./compute.ts"
+import { isImbalanceWarning, reviewColumn, rollup } from "./compute.ts"
+import { formatCents } from "./format.ts"
 import { sampleStatement } from "./statement.ts"
 
 test("demonstracijski primer je usklajen v obeh letih", () => {
@@ -42,5 +43,37 @@ test("odbitne postavke in negativni AOP 301 zmanjšajo kapital", () => {
 test("hkratni dobiček in izguba poslovnega leta pade kontrolo", () => {
   const values = rollup({ "070": 100, "071": 40 })
   const errors = reviewColumn(values, "Tekoče leto").filter((issue) => issue.severity === "error")
-  assert.ok(errors.some((issue) => issue.message.includes("AOP 070")))
+  assert.ok(errors.some((issue) => issue.message.includes("dobiček tega leta") && issue.message.includes("izguba tega leta")))
+})
+
+test("enaka AOP 001 in AOP 055 ne data opozorila o razliki", () => {
+  const values = rollup({
+    "052": 100_000,
+    "058": 80_000,
+    "069": 20_000,
+    "070": 40_000,
+  })
+  assert.equal(values["001"], values["055"])
+  assert.equal(formatCents(values["001"]), formatCents(values["055"]))
+  const issues = reviewColumn(values, "31. 8. 2026")
+  const red = issues.filter((issue) => issue.severity === "error" && !issue.imbalance)
+  assert.deepEqual(red, [])
+  assert.equal(
+    issues.some((issue) => issue.imbalance || isImbalanceWarning(issue.message)),
+    false,
+  )
+  assert.equal(
+    issues.some((issue) => /razlikujejo|niso enaka|neusklajen|preverite konte|AOP 069/.test(issue.message)),
+    false,
+  )
+})
+
+test("razlika v kontroli je v evrih, enako kot na zaslonu", () => {
+  const values = rollup({ "052": 10_050, "058": 10_000 })
+  assert.equal(values["001"], 10_050)
+  assert.equal(values["055"], 10_000)
+  const gap = reviewColumn(values, "31. 8. 2026").find((issue) => issue.imbalance)
+  assert.ok(gap)
+  assert.equal(gap.message.includes(`${formatCents(50)} €`), true)
+  assert.equal(gap.imbalance, true)
 })
