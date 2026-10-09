@@ -280,6 +280,35 @@ test("konto, ki ni na bilanci, poimenuje razliko 40.822,93", () => {
   )
 })
 
+test("popravek zneska zbriše shranjeni stavek, ko sta prikazani vsoti enaki", () => {
+  const statement = buildStatement(
+    [
+      "FORTUN d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.08.2026",
+      "120 Kupci",
+      "10.000,00 0,00 0,00 0,00 10.000,00 0,00 10.000,00 0,00",
+      "900 Osnovni kapital",
+      "0,00 8.000,00 0,00 0,00 0,00 8.000,00 0,00 8.000,00",
+      "933 Prenesena izguba",
+      "2.000,00 0,00 0,00 0,00 2.000,00 0,00 2.000,00 0,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 4.000,00 0,00 4.000,00 0,00 4.000,00",
+    ].join("\n"),
+    "fortun.pdf",
+  )
+  const current = rollup(statement.balance.current)
+  assert.equal(formatCents(current["001"]), formatCents(current["055"]))
+  const stale = {
+    ...statement,
+    warnings: ["Sredstva in obveznosti do virov se razlikujejo za 40.822,93 €. Preverite konte, ki niso razporejeni."],
+  }
+  const edited = applyCurrentAmount(stale, "bilanca", "050", 0)
+  assert.equal(
+    edited.warnings.some((warning) => /razlikujejo|niso razporejeni|40\.822,93/.test(warning)),
+    false,
+  )
+})
+
 function nonzero(values: Record<string, number>) {
   return Object.fromEntries(Object.entries(values).filter((entry) => entry[1] !== 0))
 }

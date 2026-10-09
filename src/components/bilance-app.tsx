@@ -46,6 +46,7 @@ import { grafam, mappingNotes } from "@/lib/grafam"
 import { inferLegalForm, legalFormOf, type LegalForm } from "@/lib/legal-form"
 import type { DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
+import { rollup, sheetWarnings } from "@/lib/compute"
 import { applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
@@ -323,6 +324,19 @@ export function BilanceApp() {
       archiveId: phaseRef.current === "arhiv" ? archiveIdRef.current : undefined,
     })
   }
+
+  useEffect(() => {
+    const shown = rollup(statement.balance.current, legalFormOf(statement))
+    const warnings = sheetWarnings(statement.warnings, shown["001"] ?? 0, shown["055"] ?? 0)
+    const unchanged =
+      warnings.length === statement.warnings.length && warnings.every((line, index) => line === statement.warnings[index])
+    if (unchanged) return
+    const next = { ...statement, warnings }
+    statementRef.current = next
+    setStatement(next)
+    rememberWorkspace(next)
+    persistOpenStatement(next)
+  }, [statement])
 
   function persistOpenStatement(next: Statement, nextKonti: AccountRow[] = kontiRef.current) {
     if (persistTimer.current) window.clearTimeout(persistTimer.current)

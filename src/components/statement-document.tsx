@@ -7,7 +7,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { chart, descendantLeaves, isCalculated } from "@/lib/charts"
-import { rollup, reviewColumn, sheetWarnings } from "@/lib/compute"
+import { isImbalanceWarning, rollup, reviewColumn, sameDisplayedTotal, sheetWarnings } from "@/lib/compute"
 import { DavcniPanel } from "@/components/davcni-panel"
 import { EkarticaPanel } from "@/components/ekartica-panel"
 import { formatCents, parseCents, parseSloveneDate, splitPeriod } from "@/lib/format"
@@ -54,9 +54,11 @@ export function StatementDocument({
   const issues = reviewColumn(current, statement.currentDate)
   const assets = current["001"] ?? 0
   const sources = current["055"] ?? 0
-  const aligned = assets === sources
+  const aligned = sameDisplayedTotal(assets, sources)
   const otherIssues = issues.filter((issue) => issue.severity === "error" && !issue.imbalance)
-  const visibleWarnings = sheetWarnings(statement.warnings, assets, sources)
+  const visibleWarnings = sheetWarnings(statement.warnings, assets, sources).filter(
+    (warning) => !(aligned && isImbalanceWarning(warning)),
+  )
   const notes = statement.notes.filter(
     (note) => !note.includes(statement.previousDate) && !note.includes("javna objava"),
   )

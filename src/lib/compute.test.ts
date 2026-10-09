@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { isImbalanceWarning, reviewColumn, rollup, sheetWarnings } from "./compute.ts"
+import { isImbalanceWarning, reviewColumn, rollup, sheetWarnings, warningsForSheet } from "./compute.ts"
 import { formatCents } from "./format.ts"
 import { sampleStatement } from "./statement.ts"
 
@@ -73,6 +73,31 @@ test("stari rdeči stavek o 40.822,93 se skrije, ko sta vsoti enaki", () => {
     "Sredstva in obveznosti do virov se razlikujejo za 40.822,93 €. Preverite konte, ki niso razporejeni."
   assert.equal(isImbalanceWarning(stale), true)
   assert.deepEqual(sheetWarnings([stale], 5_000_000, 5_000_000), [])
+})
+
+test("enaka prikazana vsota izbriše shranjeni stavek o 40.822,93", () => {
+  const stale =
+    "Sredstva in obveznosti do virov se razlikujejo za 40.822,93 €. Preverite konte, ki niso razporejeni."
+  const leaves = { "052": 11_138_710, "058": 11_138_710 }
+  const shown = rollup(leaves)
+  assert.equal(formatCents(shown["001"]), formatCents(shown["055"]))
+  const lines = warningsForSheet([stale], leaves)
+  assert.equal(
+    lines.some((line) => /razlikujejo|niso razporejeni|40\.822,93/.test(line)),
+    false,
+  )
+})
+
+test("isti izpis na zaslonu skrije stavek, če se centi razlikujejo le za drobec", () => {
+  const stale =
+    "Sredstva in obveznosti do virov se razlikujejo za 40.822,93 €. Preverite konte, ki niso razporejeni."
+  assert.equal(formatCents(11_138_710), formatCents(11_138_710.4))
+  assert.equal(
+    sheetWarnings([stale], 11_138_710, 11_138_710.4).some(
+      (line) => line.includes("40.822,93") || line.includes("razlikujejo") || line.includes("niso razporejeni"),
+    ),
+    false,
+  )
 })
 
 test("če se vsoti razlikujeta, stavek pove oba zneska", () => {

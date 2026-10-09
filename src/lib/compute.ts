@@ -14,14 +14,21 @@ export type Issue = {
 
 /** Besedilo, ki trdi, da sredstva in viri niso enaki. */
 export function isImbalanceWarning(message: string): boolean {
-  const text = message.toLowerCase()
+  const text = message.toLowerCase().replace(/\s+/g, " ")
+  const talksAboutBothSides = text.includes("sredstva") && text.includes("obveznosti")
+  const saysTheyDiffer = text.includes("razlik") || text.includes("niso enaka") || text.includes("neusklajen")
   return (
-    text.includes("sredstva in obveznosti do virov se razlikujejo") ||
-    text.includes("sredstva (aop 001)") ||
+    (talksAboutBothSides && saysTheyDiffer) ||
+    text.includes("preverite konte") ||
     text.includes("razlika v bilanci") ||
-    text.includes("preverite konte, ki niso razporejeni") ||
+    text.includes("sredstva (aop 001)") ||
     (text.includes("sredstva so ") && text.includes("obveznosti do virov so "))
   )
+}
+
+/** Na zaslonu je isti znesek, tudi če se shranjeni centi razlikujejo za drobec. */
+export function sameDisplayedTotal(assets: number, sources: number): boolean {
+  return formatCents(assets) === formatCents(sources)
 }
 
 /** Konto, ki ima znesek, a nima vrstice na bilanci. */
@@ -41,10 +48,16 @@ export function balanceDifferenceSentence(assets: number, sources: number): stri
  * Če se razlikujeta, stavek pove oba zneska.
  */
 export function sheetWarnings(warnings: string[], assets: number, sources: number): string[] {
-  const accounts = warnings.filter((warning) => isUnmappedAccountWarning(warning))
+  const accounts = warnings.filter((warning) => isUnmappedAccountWarning(warning) && !isImbalanceWarning(warning))
   const other = warnings.filter((warning) => !isImbalanceWarning(warning) && !isUnmappedAccountWarning(warning))
-  if (assets === sources) return [...other, ...accounts]
+  if (sameDisplayedTotal(assets, sources)) return [...other, ...accounts]
   return [balanceDifferenceSentence(assets, sources), ...accounts, ...other]
+}
+
+/** Rdeče vrstice iz tekoče bilance, ne iz shranjene razlike. */
+export function warningsForSheet(warnings: string[], leaves: AmountMap, form: LegalForm = "doo"): string[] {
+  const shown = rollup(leaves, form)
+  return sheetWarnings(warnings, shown["001"] ?? 0, shown["055"] ?? 0)
 }
 
 export function emptyAmounts(): AmountMap {
@@ -69,7 +82,7 @@ export function reviewColumn(values: AmountMap, column: string): Issue[] {
   const issues: Issue[] = []
   const assets = values["001"] ?? 0
   const equity = values["055"] ?? 0
-  const balanced = assets === equity
+  const balanced = sameDisplayedTotal(assets, equity)
   if (!balanced) {
     issues.push({
       severity: "error",

@@ -1,7 +1,7 @@
 import { matchFormula, type AccountFormula, type AccountRow, isBalanceLeaf, isSelectableAop } from "@/lib/account-map"
 import { attachPublicFiling, type PublicFiling } from "@/lib/ajpes-public"
 import { chart } from "@/lib/charts"
-import { balanceDifferenceSentence, rollup } from "@/lib/compute"
+import { balanceDifferenceSentence, rollup, sameDisplayedTotal, sheetWarnings } from "@/lib/compute"
 import { normiraniSplit, type DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
 import { incomeKind, incomeLines, postsInterestMemo, rollupIncome } from "@/lib/income"
@@ -66,7 +66,7 @@ export function applyCurrentAmount(
     const leaves = { ...statement.balance.current }
     if (amount === 0) delete leaves[aop]
     else leaves[aop] = amount
-    return { ...statement, balance: { ...statement.balance, current: leaves } }
+    return withFreshWarnings({ ...statement, balance: { ...statement.balance, current: leaves } })
   }
 
   const income = { ...statement.income }
@@ -84,7 +84,7 @@ export function applyCurrentAmount(
       if (result === 0) delete leaves["056a"]
       else leaves["056a"] = result
     }
-    return { ...statement, income, balance: { ...statement.balance, current: leaves } }
+    return withFreshWarnings({ ...statement, income, balance: { ...statement.balance, current: leaves } })
   }
   const linked = (leaves["070"] ?? 0) - (leaves["071"] ?? 0) === previousResult
   if (linked) {
@@ -95,7 +95,18 @@ export function applyCurrentAmount(
     if (result > 0) leaves["070"] = result
     if (result < 0) leaves["071"] = -result
   }
-  return { ...statement, income, balance: { ...statement.balance, current: leaves } }
+  return withFreshWarnings({ ...statement, income, balance: { ...statement.balance, current: leaves } })
+}
+
+/** Shranjeni stavek o razliki zamenja z vsotama, ki sta zdaj na bilanci. Če sta enaki, stavek zbriše. */
+function withFreshWarnings(statement: Statement): Statement {
+  const form = legalFormOf(statement)
+  const shown = rollup(statement.balance.current, form)
+  const warnings = sheetWarnings(statement.warnings, shown["001"] ?? 0, shown["055"] ?? 0)
+  if (warnings.length === statement.warnings.length && warnings.every((line, index) => line === statement.warnings[index])) {
+    return statement
+  }
+  return { ...statement, warnings }
 }
 
 /** Kartica eDavkov. Pri normirancu z obračunom davka AOP 148a vzame znesek z obračuna; sicer seštevek kartice. */
@@ -158,11 +169,12 @@ export function buildStatement(
   }
 
   const shown = rollup(current.leaves, form)
-  const shownGap = (shown["001"] ?? 0) - (shown["055"] ?? 0)
+  const shownAssets = shown["001"] ?? 0
+  const shownSources = shown["055"] ?? 0
   const warnings = [...current.warnings, ...previous.warnings, ...income.warnings]
-  if (shownGap !== 0) {
+  if (!sameDisplayedTotal(shownAssets, shownSources)) {
     warnings.push(...offSheetWarnings(accounts))
-    warnings.push(balanceDifferenceSentence(shown["001"] ?? 0, shown["055"] ?? 0))
+    warnings.push(balanceDifferenceSentence(shownAssets, shownSources))
   }
 
   const notes = notesFor(accounts, result !== 0 && gap === result, result > 0, form).filter((note) => {
