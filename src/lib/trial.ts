@@ -1,7 +1,7 @@
 import { matchFormula, type AccountFormula, type AccountRow, isBalanceLeaf, isSelectableAop } from "@/lib/account-map"
 import { attachPublicFiling, type PublicFiling } from "@/lib/ajpes-public"
 import { chart } from "@/lib/charts"
-import { rollup } from "@/lib/compute"
+import { balanceDifferenceSentence, rollup } from "@/lib/compute"
 import { normiraniSplit, type DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
 import { incomeKind, incomeLines, postsInterestMemo, rollupIncome } from "@/lib/income"
@@ -161,9 +161,8 @@ export function buildStatement(
   const shownGap = (shown["001"] ?? 0) - (shown["055"] ?? 0)
   const warnings = [...current.warnings, ...previous.warnings, ...income.warnings]
   if (shownGap !== 0) {
-    warnings.push(
-      `Sredstva in obveznosti do virov se razlikujejo za ${eur(Math.abs(shownGap))} €. Preverite konte, ki niso razporejeni.`,
-    )
+    warnings.push(...offSheetWarnings(accounts))
+    warnings.push(balanceDifferenceSentence(shown["001"] ?? 0, shown["055"] ?? 0))
   }
 
   const notes = notesFor(accounts, result !== 0 && gap === result, result > 0, form).filter((note) => {
@@ -251,9 +250,7 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
     }
     const root = account.code.slice(0, 3)
     if (root.length < 3) {
-      if (netDebit !== 0) {
-        warnings.push(`Konto ${account.code} ${account.name} nima svoje vrstice na bilanci.`)
-      }
+      if (netDebit !== 0) warnings.push(unplaced(account, netDebit))
       continue
     }
     if (root.startsWith("93")) {
@@ -262,7 +259,7 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
     }
     const target = balanceTarget(root, form)
     if (!target) {
-      if (netDebit !== 0) warnings.push(`Konto ${account.code} ${account.name} nima svoje vrstice na bilanci.`)
+      if (netDebit !== 0) warnings.push(unplaced(account, netDebit))
       continue
     }
     if (target.side === "liability" && netDebit > 0 && root.startsWith("2")) {
@@ -290,6 +287,21 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
   else if (retained < 0) add(leaves, "069", -retained)
 
   return { leaves, warnings }
+}
+
+function unplaced(account: Account, netDebit: number): string {
+  return `Konto ${account.code} ${account.name}: ${eur(Math.abs(netDebit))} € ni v bilanci.`
+}
+
+/** Razredi 5, 6 in 8 niso na bilanci. Če imajo saldo, ga navedemo po imenu. */
+function offSheetWarnings(accounts: Account[]): string[] {
+  const relevant = accounts.filter((account) => "568".includes(account.code[0] ?? ""))
+  const warnings: string[] = []
+  for (const account of balancePostings(relevant, "close")) {
+    const netDebit = net(account, "close")
+    if (netDebit !== 0) warnings.push(unplaced(account, netDebit))
+  }
+  return warnings
 }
 
 function balancePostings(accounts: Account[], field: "open" | "close"): Account[] {

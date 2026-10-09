@@ -14,12 +14,37 @@ export type Issue = {
 
 /** Besedilo, ki trdi, da sredstva in viri niso enaki. */
 export function isImbalanceWarning(message: string): boolean {
+  const text = message.toLowerCase()
   return (
-    message.includes("sredstva in obveznosti do virov se razlikujejo") ||
-    message.includes("sredstva (AOP 001)") ||
-    message.includes("Razlika v bilanci") ||
-    message.includes("preverite konte, ki niso razporejeni")
+    text.includes("sredstva in obveznosti do virov se razlikujejo") ||
+    text.includes("sredstva (aop 001)") ||
+    text.includes("razlika v bilanci") ||
+    text.includes("preverite konte, ki niso razporejeni") ||
+    (text.includes("sredstva so ") && text.includes("obveznosti do virov so "))
   )
+}
+
+/** Konto, ki ima znesek, a nima vrstice na bilanci. */
+export function isUnmappedAccountWarning(message: string): boolean {
+  const text = message.toLowerCase()
+  return text.includes("ni v bilanci") || text.includes("nima svoje vrstice na bilanci")
+}
+
+/** Oba zneska, ki ju vidi na bilanci, in razlika med njima. */
+export function balanceDifferenceSentence(assets: number, sources: number): string {
+  return `Sredstva so ${formatCents(assets)} €, obveznosti do virov so ${formatCents(sources)} €. Razlikujejo se za ${formatCents(Math.abs(assets - sources))} €.`
+}
+
+/**
+ * Rdeče vrstice pod bilanco.
+ * Če sta prikazani vsoti enaki, stavek o razliki izgine, tudi če je ostal shranjen od prej.
+ * Če se razlikujeta, stavek pove oba zneska.
+ */
+export function sheetWarnings(warnings: string[], assets: number, sources: number): string[] {
+  const accounts = warnings.filter((warning) => isUnmappedAccountWarning(warning))
+  const other = warnings.filter((warning) => !isImbalanceWarning(warning) && !isUnmappedAccountWarning(warning))
+  if (assets === sources) return [...other, ...accounts]
+  return [balanceDifferenceSentence(assets, sources), ...accounts, ...other]
 }
 
 export function emptyAmounts(): AmountMap {

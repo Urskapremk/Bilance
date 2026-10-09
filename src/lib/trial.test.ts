@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import test from "node:test"
 
-import { reviewColumn, rollup } from "./compute.ts"
+import { reviewColumn, rollup, sheetWarnings } from "./compute.ts"
+import { formatCents } from "./format.ts"
 import { statementFromPdf } from "./from-pdf.ts"
 import { grafam } from "./grafam.ts"
 import { rollupIncome } from "./income.ts"
@@ -239,6 +240,42 @@ test("usklajena bilanca z dobičkom in staro izgubo nima opozorila o razliki", (
   const issues = reviewColumn(current, statement.currentDate)
   assert.equal(
     issues.some((issue) => issue.imbalance || issue.severity === "error"),
+    false,
+  )
+})
+
+test("konto, ki ni na bilanci, poimenuje razliko 40.822,93", () => {
+  const statement = buildStatement(
+    [
+      "FORTUN d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.08.2026",
+      "120 Kupci",
+      "50.000,00 0,00 0,00 0,00 50.000,00 0,00 50.000,00 0,00",
+      "900 Osnovni kapital",
+      "0,00 9.177,07 0,00 0,00 0,00 9.177,07 0,00 9.177,07",
+      "8100 Posebni evidenčni",
+      "40.822,93 0,00 0,00 0,00 40.822,93 0,00 40.822,93 0,00",
+    ].join("\n"),
+    "fortun.pdf",
+  )
+
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"] - current["055"], 4_082_293)
+  assert.equal(
+    statement.warnings.some(
+      (warning) => warning.includes("8100") && warning.includes("Posebni evidenčni") && warning.includes(formatCents(4_082_293)),
+    ),
+    true,
+  )
+  const shown = sheetWarnings(statement.warnings, current["001"], current["055"])
+  assert.equal(shown[0]?.includes(formatCents(current["001"] ?? 0)), true)
+  assert.equal(shown[0]?.includes(formatCents(current["055"] ?? 0)), true)
+  assert.equal(shown[0]?.includes("40.822,93"), true)
+  assert.equal(shown.some((line) => line.includes("8100 Posebni evidenčni")), true)
+
+  const hidden = sheetWarnings(statement.warnings, current["001"], current["001"])
+  assert.equal(
+    hidden.some((line) => /se razlikujejo|razlikujejo se/.test(line)),
     false,
   )
 })

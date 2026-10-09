@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { isImbalanceWarning, reviewColumn, rollup } from "./compute.ts"
+import { isImbalanceWarning, reviewColumn, rollup, sheetWarnings } from "./compute.ts"
 import { formatCents } from "./format.ts"
 import { sampleStatement } from "./statement.ts"
 
@@ -66,6 +66,24 @@ test("enaka AOP 001 in AOP 055 ne data opozorila o razliki", () => {
     issues.some((issue) => /razlikujejo|niso enaka|neusklajen|preverite konte|AOP 069/.test(issue.message)),
     false,
   )
+})
+
+test("stari rdeči stavek o 40.822,93 se skrije, ko sta vsoti enaki", () => {
+  const stale =
+    "Sredstva in obveznosti do virov se razlikujejo za 40.822,93 €. Preverite konte, ki niso razporejeni."
+  assert.equal(isImbalanceWarning(stale), true)
+  assert.deepEqual(sheetWarnings([stale], 5_000_000, 5_000_000), [])
+})
+
+test("če se vsoti razlikujeta, stavek pove oba zneska", () => {
+  const stale =
+    "Sredstva in obveznosti do virov se razlikujejo za 40.822,93 €. Preverite konte, ki niso razporejeni."
+  const shown = sheetWarnings([stale, "Konto 8100 Posebni evidenčni: 40.822,93 € ni v bilanci."], 5_000_000, 917_707)
+  assert.equal(shown[0]?.includes(formatCents(5_000_000)), true)
+  assert.equal(shown[0]?.includes(formatCents(917_707)), true)
+  assert.equal(shown[0]?.includes(formatCents(4_082_293)), true)
+  assert.equal(shown.some((line) => line.includes("8100") && line.includes("Posebni evidenčni") && line.includes("40.822,93")), true)
+  assert.equal(shown.some((line) => line.startsWith("Sredstva in obveznosti do virov se razlikujejo")), false)
 })
 
 test("razlika v kontroli je v evrih, enako kot na zaslonu", () => {
