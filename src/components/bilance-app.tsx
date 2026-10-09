@@ -253,6 +253,8 @@ export function BilanceApp() {
     let cancel = false
     void (async () => {
       try {
+        await listArchive().catch(() => undefined)
+        if (cancel) return
         const place = await readLastPlace().catch(() => null)
         if (cancel) return
         if (!place || place.phase === "primer" || sameClient(place.company, SAMPLE_CLIENT)) return
@@ -935,10 +937,7 @@ export function BilanceApp() {
     setSaveError(null)
     setError(null)
     try {
-      const meta =
-        phaseRef.current === "arhiv" && archiveIdRef.current
-          ? await updateArchive(archiveIdRef.current, current)
-          : await saveArchive(current, pdf.slice(0))
+      const meta = await saveArchive(current, pdf.slice(0), phaseRef.current === "arhiv" ? archiveIdRef.current : undefined)
       if (!meta) throw new Error("Shranjene bilance ni bilo mogoče zapisati.")
       setArchiveItems(await listArchive())
       archiveIdRef.current = meta.id
@@ -1436,7 +1435,7 @@ export function BilanceApp() {
                 <DialogTitle className="text-2xl text-navy">Ali shrani?</DialogTitle>
                 <DialogDescription>
                   Pod {statement.company} se za obdobje {statement.period} shrani izvorni PDF {pdfName}. Zraven se shranita
-                  bilanca stanja in izkaz poslovnega izida.
+                  bilanca stanja in izkaz poslovnega izida. Za to obdobje v arhivu ostane zadnja shranjena bilanca.
                 </DialogDescription>
               </DialogHeader>
               {saveError ? (
@@ -1462,7 +1461,7 @@ export function BilanceApp() {
           <DialogHeader>
             <DialogTitle className="text-2xl text-navy">Arhiv končnih bilanc</DialogTitle>
             <DialogDescription>
-              Vsaka stranka hrani svoja obdobja v svoji bazi. Pri obdobju sta shranjena izvorni PDF ter oba obrazca. Znesek v odprtem obdobju popravite na obrazcu.
+              Vsaka stranka hrani svoja obdobja v svoji bazi. Za isto obdobje ostane zadnja shranjena bilanca. Pri obdobju sta shranjena izvorni PDF ter oba obrazca. Znesek v odprtem obdobju popravite na obrazcu.
             </DialogDescription>
           </DialogHeader>
           {archiveError ? (

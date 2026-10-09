@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { formatSavedAt, groupArchiveByClient, type ArchiveMeta } from "./archive.ts"
+import { formatSavedAt, groupArchiveByClient, keepNewestByPeriod, type ArchiveMeta } from "./archive.ts"
 
 test("arhiv je razvrščen pod stranko", () => {
   const items: ArchiveMeta[] = [
@@ -13,6 +13,52 @@ test("arhiv je razvrščen pod stranko", () => {
   assert.equal(groups.length, 2)
   assert.equal(groups[1]?.company, "GRAFAM d.o.o.")
   assert.deepEqual(groups[1]?.items.map((item) => item.id), ["a", "c"])
+})
+
+test("za isto stranko in obdobje ostane zadnja bilanca", () => {
+  const items: ArchiveMeta[] = [
+    {
+      id: "fortun-1205",
+      savedAt: "2026-10-09T10:05:00.000Z",
+      company: "FORTUN d.o.o.",
+      period: "1. 1. 2026–31. 8. 2026",
+      currentDate: "31. 8. 2026",
+      sourceName: "BB FORTUN 31.08.2026.pdf",
+    },
+    {
+      id: "fortun-1210",
+      savedAt: "2026-10-09T10:10:00.000Z",
+      company: "Fortun d.o.o.",
+      period: "1. 1. 2026–31. 8. 2026 ",
+      currentDate: "31. 8. 2026",
+      sourceName: "BB FORTUN 31.08.2026.pdf",
+    },
+    {
+      id: "fortun-junij",
+      savedAt: "2026-07-01T08:00:00.000Z",
+      company: "FORTUN d.o.o.",
+      period: "1. 1. 2026–30. 6. 2026",
+      currentDate: "30. 6. 2026",
+      sourceName: "BB FORTUN 30.06.2026.pdf",
+    },
+    {
+      id: "sever",
+      savedAt: "2026-10-09T12:00:00.000Z",
+      company: "Sever d.o.o.",
+      period: "1. 1. 2026–31. 8. 2026",
+      currentDate: "31. 8. 2026",
+      sourceName: "sever.pdf",
+    },
+  ]
+  const { kept, dropped } = keepNewestByPeriod(items)
+  assert.deepEqual(
+    kept.map((item) => item.id),
+    ["fortun-1210", "fortun-junij", "sever"],
+  )
+  assert.deepEqual(
+    dropped.map((item) => item.id),
+    ["fortun-1205"],
+  )
 })
 
 test("datum arhiva je zapisan po slovensko", () => {

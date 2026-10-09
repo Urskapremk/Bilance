@@ -1,5 +1,6 @@
 import type { AccountFormula, AccountRow } from "@/lib/account-map"
 import { mergeFormulas } from "@/lib/account-map"
+import { keepNewestByPeriod, samePeriod } from "@/lib/archive-period"
 import { clientKey, normalizeClientName, sameClient, SAMPLE_CLIENT } from "@/lib/clients"
 import { parseLegalForm, type LegalForm } from "@/lib/legal-form"
 import type { Statement } from "@/lib/trial"
@@ -163,12 +164,21 @@ export function pinStoredStatement(
   }
 }
 
-export async function updateStoredPeriod(id: string, statement: Statement): Promise<StoredPeriod | null> {
+export async function updateStoredPeriod(id: string, statement: Statement, pdf?: ArrayBuffer): Promise<StoredPeriod | null> {
   if (!id) return null
   const registry = await openRegistry()
   const company = await get<string>(registry, "kazalo", id)
   registry.close()
   if (!company || typeof company !== "string") return null
+  return replaceStoredPeriod(company, id, statement, pdf)
+}
+
+async function replaceStoredPeriod(
+  company: string,
+  id: string,
+  statement: Statement,
+  pdf?: ArrayBuffer,
+): Promise<StoredPeriod | null> {
   const db = await openClient(company)
   const period = await get<StoredPeriod>(db, "obdobja", id)
   if (!period) {
@@ -176,34 +186,65 @@ export async function updateStoredPeriod(id: string, statement: Statement): Prom
     return null
   }
   const pinned = pinStoredStatement(period, statement)
+  const sourceName = pdf ? statement.sourceName || period.sourceName : pinned.sourceName
   const next: StoredPeriod = {
     ...period,
     savedAt: new Date().toISOString(),
     period: pinned.period,
     currentDate: pinned.currentDate,
-    statement: pinned,
+    sourceName,
+    statement: { ...pinned, sourceName },
   }
   await put(db, "obdobja", next)
+  if (pdf) await put(db, "pdf", pdf.slice(0), id)
   db.close()
   return next
 }
 
-export async function saveStoredPeriod(statement: Statement, pdf: ArrayBuffer, forms: string[]): Promise<StoredPeriod> {
+export async function saveStoredPeriod(
+  statement: Statement,
+  pdf: ArrayBuffer,
+  forms: string[],
+  openId?: string,
+): Promise<StoredPeriod> {
   const name = await rememberStoredClient(statement.company)
+  const db = await openClient(name)
+  const existing = await getAll<StoredPeriod>(db, "obdobja")
+  db.close()
+  const matches = existing.filter((item) => samePeriod(item, { company: name, period: statement.period }))
+  const open = openId ? existing.find((item) => item.id === openId) : undefined
+  const openIsThisPeriod = open ? matches.some((item) => item.id === open.id) : false
+  const target = (openIsThisPeriod ? open : undefined) ?? keepNewestByPeriod(matches).kept[0] ?? open
+  if (target) {
+    const registry = await openRegistry()
+    await put(registry, "kazalo", target.company || name, target.id)
+    registry.close()
+    for (const old of matches) {
+      if (old.id !== target.id) await removeStoredPeriod(name, old.id)
+    }
+    const saved = await replaceStoredPeriod(name, target.id, { ...statement, company: target.company || name }, pdf)
+    if (saved) {
+      const replaced = matches.map((item) => item.id)
+      if (openId && openId !== saved.id) replaced.push(openId)
+      await pointLastPlaceAt(saved.id, replaced)
+      return saved.forms?.length ? saved : { ...saved, forms }
+    }
+  }
+  const sourceName = statement.sourceName || "bruto-bilanca.pdf"
   const period: StoredPeriod = {
     id: crypto.randomUUID(),
     savedAt: new Date().toISOString(),
     company: name,
     period: statement.period,
     currentDate: statement.currentDate,
-    sourceName: statement.sourceName || "bruto-bilanca.pdf",
+    sourceName,
     forms,
-    statement: { ...statement, company: name, sourceName: statement.sourceName || "bruto-bilanca.pdf" },
+    statement: { ...statement, company: name, sourceName },
   }
-  const db = await openClient(name)
-  await put(db, "obdobja", period)
-  await put(db, "pdf", pdf.slice(0), period.id)
-  db.close()
+  const book = await openClient(name)
+  await put(book, "obdobja", period)
+  await put(book, "pdf", pdf.slice(0), period.id)
+  book.close()
   const registry = await openRegistry()
   await put(registry, "kazalo", name, period.id)
   registry.close()
@@ -213,12 +254,48 @@ export async function saveStoredPeriod(statement: Statement, pdf: ArrayBuffer, f
 export async function listStoredPeriods(): Promise<StoredPeriod[]> {
   const names = await listStoredClients()
   const periods: StoredPeriod[] = []
+  const dropped: StoredPeriod[] = []
   for (const name of names) {
     const db = await openClient(name)
-    periods.push(...(await getAll<StoredPeriod>(db, "obdobja")))
+    const stored = await getAll<StoredPeriod>(db, "obdobja")
+    const { kept, dropped: older } = keepNewestByPeriod(stored)
+    for (const old of older) {
+      await del(db, "obdobja", old.id)
+      await del(db, "pdf", old.id)
+      dropped.push(old)
+    }
     db.close()
+    periods.push(...kept)
+  }
+  if (dropped.length > 0) {
+    const registry = await openRegistry()
+    for (const old of dropped) await del(registry, "kazalo", old.id)
+    registry.close()
+    const place = await readLastPlace()
+    if (place?.archiveId && dropped.some((old) => old.id === place.archiveId)) {
+      const gone = dropped.find((old) => old.id === place.archiveId)
+      const winner = gone ? periods.find((item) => samePeriod(item, gone)) : undefined
+      if (winner) await writeLastPlace({ ...place, phase: "arhiv", archiveId: winner.id })
+    }
   }
   return periods.sort((left, right) => right.savedAt.localeCompare(left.savedAt))
+}
+
+async function removeStoredPeriod(company: string, id: string): Promise<void> {
+  const db = await openClient(company)
+  await del(db, "obdobja", id)
+  await del(db, "pdf", id)
+  db.close()
+  const registry = await openRegistry()
+  await del(registry, "kazalo", id)
+  registry.close()
+}
+
+async function pointLastPlaceAt(id: string, replacedIds: string[]): Promise<void> {
+  const place = await readLastPlace()
+  if (!place?.archiveId || place.archiveId === id) return
+  if (!replacedIds.includes(place.archiveId)) return
+  await writeLastPlace({ ...place, phase: "arhiv", archiveId: id })
 }
 
 export async function readStoredPeriod(id: string): Promise<{ statement: Statement; pdf: ArrayBuffer; sourceName: string } | null> {
@@ -289,6 +366,10 @@ function get<T>(db: IDBDatabase, store: string, key: IDBValidKey): Promise<T | n
 
 function getAll<T>(db: IDBDatabase, store: string): Promise<T[]> {
   return run(db, store, "readonly", (objectStore) => objectStore.getAll()).then((value) => (value ?? []) as T[])
+}
+
+function del(db: IDBDatabase, store: string, key: IDBValidKey): Promise<void> {
+  return run(db, store, "readwrite", (objectStore) => objectStore.delete(key)).then(() => undefined)
 }
 
 function run<T>(

@@ -1,6 +1,9 @@
+import { keepNewestByPeriod, samePeriod } from "@/lib/archive-period"
 import { listStoredPeriods, readStoredPeriod, saveStoredPeriod, updateStoredPeriod } from "@/lib/browser-book"
 import { sameClient } from "@/lib/clients"
 import type { Statement } from "@/lib/trial"
+
+export { keepNewestByPeriod, samePeriod }
 
 export const PERIOD_FORMS = ["Bilanca stanja", "Izkaz poslovnega izida"] as const
 
@@ -32,10 +35,10 @@ export function formatSavedAt(iso: string): string {
   return new Date(iso).toLocaleString("sl-SI", { dateStyle: "medium", timeStyle: "short" })
 }
 
-export async function saveArchive(statement: Statement, pdf: ArrayBuffer): Promise<ArchiveMeta> {
+export async function saveArchive(statement: Statement, pdf: ArrayBuffer, openId?: string): Promise<ArchiveMeta> {
   if (!browserBook()) return saveRemoteArchive(statement, pdf)
-  const stored = await saveStoredPeriod(statement, pdf.slice(0), [...PERIOD_FORMS])
-  void saveRemoteArchive(statement, pdf).catch(() => undefined)
+  const stored = await saveStoredPeriod(statement, pdf.slice(0), [...PERIOD_FORMS], openId)
+  void saveRemoteArchive(statement, pdf, stored).catch(() => undefined)
   return stored
 }
 
@@ -43,10 +46,13 @@ export async function listArchive(): Promise<ArchiveMeta[]> {
   const remote = await listRemoteArchive().catch(() => [] as ArchiveMeta[])
   if (!browserBook()) return remote
   const local = await listStoredPeriods()
-  const seen = new Set(local.map((item) => item.id))
-  return [...local, ...remote.filter((item) => !seen.has(item.id))].sort((left, right) =>
-    right.savedAt.localeCompare(left.savedAt),
-  )
+  const localIds = new Set(local.map((item) => item.id))
+  const extra = remote.filter((item) => !localIds.has(item.id))
+  const duplicate = extra.filter((item) => local.some((localItem) => samePeriod(localItem, item)))
+  const remoteOnly = extra.filter((item) => !duplicate.some((itemDuplicate) => itemDuplicate.id === item.id))
+  await Promise.all(duplicate.map((item) => deleteRemoteArchive(item.id).catch(() => undefined)))
+  const { kept } = keepNewestByPeriod([...local, ...remoteOnly])
+  return kept.sort((left, right) => right.savedAt.localeCompare(left.savedAt))
 }
 
 export async function updateArchive(id: string, statement: Statement): Promise<ArchiveMeta | null> {
@@ -80,11 +86,17 @@ function browserBook(): boolean {
   return typeof indexedDB !== "undefined"
 }
 
-async function saveRemoteArchive(statement: Statement, pdf: ArrayBuffer): Promise<ArchiveMeta> {
+async function saveRemoteArchive(
+  statement: Statement,
+  pdf: ArrayBuffer,
+  stored?: { id: string; savedAt: string },
+): Promise<ArchiveMeta> {
   const body = new FormData()
   const name = statement.sourceName || "bruto-bilanca.pdf"
   body.set("statement", JSON.stringify(statement))
   body.set("file", new Blob([pdf.slice(0)], { type: "application/pdf" }), name)
+  if (stored?.id) body.set("id", stored.id)
+  if (stored?.savedAt) body.set("savedAt", stored.savedAt)
   const response = await fetch("/api/arhiv", { method: "POST", body })
   const data = (await response.json().catch(() => null)) as (ArchiveMeta & { error?: string }) | null
   if (!response.ok || !data?.id) {
@@ -97,6 +109,11 @@ async function listRemoteArchive(): Promise<ArchiveMeta[]> {
   const response = await fetch("/api/arhiv", { cache: "no-store" })
   if (!response.ok) throw new Error("Arhiva ni bilo mogoče odpreti.")
   return (await response.json()) as ArchiveMeta[]
+}
+
+async function deleteRemoteArchive(id: string): Promise<void> {
+  const response = await fetch(`/api/arhiv/${id}`, { method: "DELETE" })
+  if (!response.ok) throw new Error("Arhivskega zapisa ni bilo mogoče umakniti.")
 }
 
 async function updateRemoteArchive(id: string, statement: Statement): Promise<ArchiveMeta> {

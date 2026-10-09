@@ -1,4 +1,4 @@
-import { readArchiveStatement, replaceArchiveStatement } from "@/lib/archive-disk"
+import { readArchiveStatement, removeArchive, replaceArchiveStatement } from "@/lib/archive-disk"
 import type { Statement } from "@/lib/trial"
 
 export const runtime = "nodejs"
@@ -27,6 +27,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   try {
     const meta = await replaceArchiveStatement(id, statement)
     return Response.json(meta)
+  } catch {
+    return Response.json({ error: "Te končne bilance v arhivu ni." }, { status: 404 })
+  }
+}
+
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  try {
+    await removeArchive(id)
+    return Response.json({ ok: true })
   } catch {
     return Response.json({ error: "Te končne bilance v arhivu ni." }, { status: 404 })
   }

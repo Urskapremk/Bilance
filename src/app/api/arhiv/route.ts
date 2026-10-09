@@ -25,6 +25,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "Obrazec nima družbe in obdobja." }, { status: 400 })
   }
   const pdf = new Uint8Array(await file.arrayBuffer())
-  const meta = await writeArchive(statement, pdf, file.name || statement.sourceName)
+  const requestedId = form.get("id")
+  const requestedSavedAt = form.get("savedAt")
+  const meta = await writeArchive(statement, pdf, file.name || statement.sourceName, {
+    id: typeof requestedId === "string" ? requestedId : undefined,
+    savedAt: typeof requestedSavedAt === "string" ? requestedSavedAt : undefined,
+  })
   return Response.json(meta)
 }

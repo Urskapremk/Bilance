@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { rm } from "node:fs/promises"
+import { access, mkdir, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import test from "node:test"
 
@@ -52,4 +52,57 @@ test("končna bilanca se zapiše na disk in se prebere nazaj", async () => {
 
 test("neveljaven arhivski naslov se ne prebere", async () => {
   await assert.rejects(() => readArchiveStatement("../tajno"), /ni veljaven/)
+})
+
+test("ponovni zapis istega obdobja zamenja prejšnjo bilanco", async () => {
+  const company = "FORTUN d.o.o."
+  const period = "1. 1. 2026–31. 8. 2026"
+  const fortun = { ...statement, company, period, sourceName: "BB FORTUN 31.08.2026.pdf" }
+  const firstPdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])
+  const secondPdf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x32])
+  const first = await writeArchive(fortun, firstPdf, fortun.sourceName)
+  const updated = await writeArchive(
+    { ...fortun, balance: { current: { "070": 42 }, previous: {} } },
+    secondPdf,
+    fortun.sourceName,
+  )
+  const other = await writeArchive(
+    { ...fortun, period: "1. 1. 2025–31. 12. 2025", currentDate: "31. 12. 2025", sourceName: "BB FORTUN 31.12.2025.pdf" },
+    firstPdf,
+    "BB FORTUN 31.12.2025.pdf",
+  )
+  const olderId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"
+  const olderDir = path.join(process.cwd(), "data", "arhiv", olderId)
+  await mkdir(olderDir, { recursive: true })
+  await writeFile(
+    path.join(olderDir, "meta.json"),
+    JSON.stringify({
+      id: olderId,
+      savedAt: "2020-01-01T00:00:00.000Z",
+      company,
+      period,
+      currentDate: "31. 8. 2026",
+      sourceName: "staro.pdf",
+      forms: ["Bilanca stanja", "Izkaz poslovnega izida"],
+    }),
+  )
+  await writeFile(path.join(olderDir, "statement.json"), JSON.stringify(fortun))
+  await writeFile(path.join(olderDir, "bruto.pdf"), firstPdf)
+  try {
+    assert.equal(updated.id, first.id)
+    assert.equal(updated.period, period)
+    const stored = await readArchiveStatement(updated.id)
+    assert.equal(stored.balance.current["070"], 42)
+    assert.equal(stored.company, company)
+    const storedPdf = await readArchivePdf(updated.id)
+    assert.equal(Buffer.from(storedPdf.subarray(0, 6)).toString(), "%PDF-2")
+    assert.notEqual(other.id, first.id)
+    const listed = (await listArchiveFiles()).filter((item) => item.company === company)
+    assert.deepEqual(listed.map((item) => item.id).sort(), [first.id, other.id].sort())
+    await assert.rejects(() => access(olderDir))
+  } finally {
+    await rm(path.join(process.cwd(), "data", "arhiv", first.id), { recursive: true, force: true })
+    await rm(path.join(process.cwd(), "data", "arhiv", other.id), { recursive: true, force: true })
+    await rm(olderDir, { recursive: true, force: true })
+  }
 })
