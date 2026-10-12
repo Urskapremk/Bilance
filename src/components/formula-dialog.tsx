@@ -49,17 +49,28 @@ export function FormulaDialog({
 
   useEffect(() => {
     if (!open) return
+    function place() {
+      const width = Math.min(768, window.innerWidth - 16, panel.current?.offsetWidth ?? 768)
+      const height = panel.current?.offsetHeight ?? 240
+      setPos((current) => ({
+        x: Math.min(Math.max(8, window.innerWidth - width - 8), Math.max(8, current.x)),
+        y: Math.min(Math.max(8, window.innerHeight - Math.min(height, window.innerHeight - 16)), Math.max(8, current.y)),
+      }))
+    }
     const width = Math.min(768, window.innerWidth - 16)
     setPos({ x: Math.max(8, window.innerWidth - width - 12), y: 12 })
+    window.addEventListener("resize", place)
+    return () => window.removeEventListener("resize", place)
   }, [open])
 
   if (!open || typeof document === "undefined") return null
 
   function clamp(x: number, y: number) {
     const width = panel.current?.offsetWidth ?? 320
+    const height = panel.current?.offsetHeight ?? 240
     return {
-      x: Math.min(window.innerWidth - 72, Math.max(16 - width, x)),
-      y: Math.min(window.innerHeight - 48, Math.max(8, y)),
+      x: Math.min(Math.max(8, window.innerWidth - width - 8), Math.max(8, x)),
+      y: Math.min(Math.max(8, window.innerHeight - Math.min(height, window.innerHeight - 16)), Math.max(8, y)),
     }
   }
 
@@ -86,7 +97,7 @@ export function FormulaDialog({
       ref={panel}
       role="dialog"
       aria-label="Kam gre konto?"
-      className="fixed z-40 flex max-h-[calc(100dvh-1rem)] w-[min(48rem,calc(100vw-1rem))] min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+      className="fixed z-40 flex max-h-[min(40rem,calc(100dvh-2rem))] w-[min(48rem,calc(100vw-1rem))] min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
       style={{ left: pos.x, top: pos.y }}
     >
       <div
@@ -371,7 +382,19 @@ function FormulaForm({
           <Button
             type="button"
             disabled={busy || missing || rows.length === 0 || pending !== null}
-            onClick={() => onConfirm(rows.map((row) => ({ code: row.code, aop: applied.current[row.code] || chosen(row.code) })))}
+            onClick={() => {
+              const code = lastCode.current
+              if (code) {
+                const raw = choices[code] ?? ""
+                const next = canonAop(raw)
+                const from = applied.current[code] ?? ""
+                if (next && next !== from) {
+                  ask(code, raw, true)
+                  return
+                }
+              }
+              onConfirm(rows.map((row) => ({ code: row.code, aop: applied.current[row.code] || chosen(row.code) })))
+            }}
           >
             {busy ? "Shranjujem…" : "Zapomni si za stranko"}
           </Button>
