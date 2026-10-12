@@ -309,6 +309,176 @@ test("popravek zneska zbriše shranjeni stavek, ko sta prikazani vsoti enaki", (
   )
 })
 
+test("izračunan dobiček iz izkaza pride na postavko 070 in bilanca se ujema", () => {
+  const statement = buildStatement(
+    [
+      "ACME d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.01.2026",
+      "120 Kupci",
+      "1.000,00 0,00 150,00 0,00 1.150,00 0,00 1.150,00 0,00",
+      "220 Dobavitelji",
+      "0,00 1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 200,00 0,00 200,00 0,00 200,00",
+      "400 Material",
+      "0,00 0,00 50,00 0,00 50,00 0,00 50,00 0,00",
+    ].join("\n"),
+    "dobicek.pdf",
+  )
+
+  const profit = rollupIncome(statement.income)["186"]
+  assert.equal(profit, 15_000)
+  assert.equal(statement.balance.current["070"], profit)
+  assert.equal(statement.balance.current["071"], undefined)
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"], current["055"])
+  assert.equal(
+    statement.warnings.some((warning) => /razlikujejo/.test(warning)),
+    false,
+  )
+})
+
+test("že vknjižen dobiček na postavki 070 se ne podvoji", () => {
+  const statement = buildStatement(
+    [
+      "ACME d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.01.2026",
+      "120 Kupci",
+      "1.150,00 0,00 0,00 0,00 1.150,00 0,00 1.150,00 0,00",
+      "220 Dobavitelji",
+      "0,00 1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00",
+      "931 Čisti dobiček poslovnega leta",
+      "0,00 150,00 0,00 0,00 0,00 150,00 0,00 150,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 200,00 0,00 200,00 0,00 200,00",
+      "400 Material",
+      "0,00 0,00 50,00 0,00 50,00 0,00 50,00 0,00",
+    ].join("\n"),
+    "ze-070.pdf",
+    [{ code: "931", aop: "070" }],
+  )
+
+  const profit = rollupIncome(statement.income)["186"]
+  assert.equal(profit, 15_000)
+  assert.equal(statement.balance.current["070"], profit)
+  assert.equal(statement.balance.current["071"], undefined)
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"], current["055"])
+})
+
+test("dobiček pride na 070, tudi ko razlika ni natanko enaka dobičku", () => {
+  const statement = buildStatement(
+    [
+      "ACME d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.01.2026",
+      "120 Kupci",
+      "1.000,00 0,00 250,00 0,00 1.250,00 0,00 1.250,00 0,00",
+      "220 Dobavitelji",
+      "0,00 1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 200,00 0,00 200,00 0,00 200,00",
+      "400 Material",
+      "0,00 0,00 50,00 0,00 50,00 0,00 50,00 0,00",
+    ].join("\n"),
+    "razlika.pdf",
+  )
+
+  const profit = rollupIncome(statement.income)["186"]
+  assert.equal(profit, 15_000)
+  assert.equal(statement.balance.current["070"], profit)
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"] - current["055"], 10_000)
+})
+
+test("izguba iz izkaza pride na postavko 071", () => {
+  const statement = buildStatement(
+    [
+      "ACME d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.01.2026",
+      "120 Kupci",
+      "1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00 0,00",
+      "220 Dobavitelji",
+      "0,00 1.000,00 0,00 50,00 0,00 1.050,00 0,00 1.050,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 100,00 0,00 100,00 0,00 100,00",
+      "400 Material",
+      "0,00 0,00 150,00 0,00 150,00 0,00 150,00 0,00",
+    ].join("\n"),
+    "izguba.pdf",
+  )
+
+  const loss = rollupIncome(statement.income)["187"]
+  assert.equal(loss, 5_000)
+  assert.equal(statement.balance.current["071"], loss)
+  assert.equal(statement.balance.current["070"], undefined)
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"], current["055"])
+  assert.equal(
+    statement.warnings.some((warning) => /razlikujejo/.test(warning)),
+    false,
+  )
+})
+
+test("dobiček, ki je že v prenesenem dobičku, ne pride še enkrat na 070", () => {
+  const statement = buildStatement(
+    [
+      "ACME d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.01.2026",
+      "120 Kupci",
+      "1.150,00 0,00 0,00 0,00 1.150,00 0,00 1.150,00 0,00",
+      "220 Dobavitelji",
+      "0,00 1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00",
+      "930 Preneseni dobiček",
+      "0,00 0,00 0,00 150,00 0,00 150,00 0,00 150,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 200,00 0,00 200,00 0,00 200,00",
+      "400 Material",
+      "0,00 0,00 50,00 0,00 50,00 0,00 50,00 0,00",
+    ].join("\n"),
+    "zaprt.pdf",
+  )
+
+  const profit = rollupIncome(statement.income)["186"]
+  assert.equal(profit, 15_000)
+  assert.equal(statement.balance.current["068"], profit)
+  assert.equal(statement.balance.current["070"], undefined)
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"], current["055"])
+})
+
+test("hkrati vknjižen dobiček in izguba ostaneta le pravi izid", () => {
+  const statement = buildStatement(
+    [
+      "ACME d.o.o.",
+      "Bilanca za obdobje 01.01.2026-31.01.2026",
+      "120 Kupci",
+      "1.150,00 0,00 0,00 0,00 1.150,00 0,00 1.150,00 0,00",
+      "220 Dobavitelji",
+      "0,00 1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00",
+      "931 Čisti dobiček poslovnega leta",
+      "0,00 200,00 0,00 0,00 0,00 200,00 0,00 200,00",
+      "934 Čista izguba poslovnega leta",
+      "50,00 0,00 0,00 0,00 50,00 0,00 50,00 0,00",
+      "760 Prodaja",
+      "0,00 0,00 0,00 200,00 0,00 200,00 0,00 200,00",
+      "400 Material",
+      "0,00 0,00 50,00 0,00 50,00 0,00 50,00 0,00",
+    ].join("\n"),
+    "oba.pdf",
+    [
+      { code: "931", aop: "070" },
+      { code: "934", aop: "071" },
+    ],
+  )
+
+  const profit = rollupIncome(statement.income)["186"]
+  assert.equal(profit, 15_000)
+  assert.equal(statement.balance.current["070"], profit)
+  assert.equal(statement.balance.current["071"], undefined)
+  const current = rollup(statement.balance.current)
+  assert.equal(current["001"], current["055"])
+})
+
 function nonzero(values: Record<string, number>) {
   return Object.fromEntries(Object.entries(values).filter((entry) => entry[1] !== 0))
 }

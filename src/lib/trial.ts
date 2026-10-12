@@ -159,25 +159,19 @@ export function buildStatement(
   const rolledIncome = rollupIncome(income.leaves, form)
   const pair = resultAops(form)
   const result = (rolledIncome[pair.profit] ?? 0) - (rolledIncome[pair.loss] ?? 0)
-  const gap = (rollup(current.leaves, form)["001"] ?? 0) - (rollup(current.leaves, form)["055"] ?? 0)
-
-  if (form === "drustvo") {
-    if (result !== 0 && gap === result) add(current.leaves, "056a", result)
-  } else {
-    if (result > 0 && gap === result) current.leaves["070"] = result
-    if (result < 0 && gap === result) current.leaves["071"] = -result
-  }
+  const placed = placePeriodResult(current.leaves, result, form, accounts)
 
   const shown = rollup(current.leaves, form)
   const shownAssets = shown["001"] ?? 0
   const shownSources = shown["055"] ?? 0
   const warnings = [...current.warnings, ...previous.warnings, ...income.warnings]
-  if (!sameDisplayedTotal(shownAssets, shownSources)) {
+  const balanced = sameDisplayedTotal(shownAssets, shownSources)
+  if (!balanced) {
     warnings.push(...offSheetWarnings(accounts))
     warnings.push(balanceDifferenceSentence(shownAssets, shownSources))
   }
 
-  const notes = notesFor(accounts, result !== 0 && gap === result, result > 0, form).filter((note) => {
+  const notes = notesFor(accounts, placed && balanced, result > 0, form).filter((note) => {
     if (!note.includes("kontu 758")) return true
     return !accounts.some((account) => account.code.startsWith("758") && incomeOverride(account, formulas, form) !== null)
   })
@@ -194,6 +188,61 @@ export function buildStatement(
     warnings,
     legalForm: form,
   })
+}
+
+/**
+ * Izračunani poslovni izid z izkaza prenese na bilanco.
+ * Dobiček gre na postavko 070, izguba na 071, pri društvu na 056a.
+ * Če je isti znesek že v knjigah ali je leto že zaprto v preneseni dobiček, ga ne prišteje še enkrat.
+ */
+function placePeriodResult(
+  leaves: Record<string, number>,
+  result: number,
+  form: LegalForm,
+  accounts: Account[],
+): boolean {
+  const shown = rollup(leaves, form)
+  const gap = (shown["001"] ?? 0) - (shown["055"] ?? 0)
+  const closedIntoRetained = class93CreditIncrease(accounts) === result && result !== 0
+
+  if (form !== "drustvo") {
+    const booked = (leaves["070"] ?? 0) - (leaves["071"] ?? 0)
+    if (booked === result) {
+      if ((leaves["070"] ?? 0) !== 0 && (leaves["071"] ?? 0) !== 0) writeSingleResult(leaves, result)
+      return false
+    }
+  }
+
+  if (result === 0 || closedIntoRetained || gap === 0) return false
+
+  if (form === "drustvo") {
+    add(leaves, "056a", result)
+    return true
+  }
+
+  writeSingleResult(leaves, result)
+  return true
+}
+
+function writeSingleResult(leaves: Record<string, number>, result: number) {
+  delete leaves["070"]
+  delete leaves["071"]
+  if (result > 0) leaves["070"] = result
+  else if (result < 0) leaves["071"] = -result
+}
+
+/** Za koliko se je v obdobju povečal preneseni dobiček na kontih 93, v centih. */
+function class93CreditIncrease(accounts: Account[]): number {
+  const relevant = accounts.filter((account) => "01239".includes(account.code[0] ?? ""))
+  const credit = (field: "open" | "close") => {
+    let sum = 0
+    for (const account of balancePostings(relevant, field)) {
+      if (!account.code.startsWith("93")) continue
+      sum -= net(account, field)
+    }
+    return sum
+  }
+  return credit("close") - credit("open")
 }
 
 export function accountRows(text: string, formulas: AccountFormula[] = [], form: LegalForm = "doo"): AccountRow[] {
