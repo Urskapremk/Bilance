@@ -27,6 +27,22 @@ export type AopChoice = {
   label: string
 }
 
+/** Iskanje v oknu »Kam gre konto?«. Šifra, naziv ali AOP. Krajša šifra najde tudi analitične konte. */
+export function filterAccountRows<T extends { code: string; name: string; aop?: string }>(
+  rows: T[],
+  query: string,
+  choices?: Record<string, string>,
+): T[] {
+  const needle = query.trim().toLocaleLowerCase("sl")
+  if (!needle) return rows
+  return rows.filter((row) => {
+    const code = row.code.toLocaleLowerCase("sl")
+    const name = row.name.toLocaleLowerCase("sl")
+    const aop = (choices?.[row.code] ?? row.aop ?? "").toLocaleLowerCase("sl")
+    return code.includes(needle) || name.includes(needle) || aop.includes(needle)
+  })
+}
+
 export function matchFormula(code: string, formulas: AccountFormula[]): AccountFormula | undefined {
   let best: AccountFormula | undefined
   for (const formula of formulas) {

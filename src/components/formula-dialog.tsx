@@ -4,7 +4,14 @@ import { X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { createPortal } from "react-dom"
 
-import { canonAop, choicesFor, isSelectableAop, type AccountFormula, type AccountRow } from "@/lib/account-map"
+import {
+  canonAop,
+  choicesFor,
+  filterAccountRows,
+  isSelectableAop,
+  type AccountFormula,
+  type AccountRow,
+} from "@/lib/account-map"
 import type { LegalForm } from "@/lib/legal-form"
 import { formatCents } from "@/lib/format"
 import { Button } from "@/components/ui/button"
@@ -212,21 +219,13 @@ function FormulaForm({
     const timer = window.setTimeout(() => ask(code, choices[code] ?? "", false), 450)
     return () => window.clearTimeout(timer)
   }, [choices, pending])
-  const needle = query.trim().toLocaleLowerCase("sl")
-  const visible = useMemo(
-    () =>
-      rows.filter((row) => {
-        if (!needle) return true
-        return (
-          row.code.toLocaleLowerCase("sl").includes(needle) ||
-          row.name.toLocaleLowerCase("sl").includes(needle) ||
-          (choices[row.code] ?? "").includes(needle)
-        )
-      }),
-    [rows, needle, choices],
-  )
+  const visible = useMemo(() => filterAccountRows(rows, query, choices), [rows, query, choices])
   const chosen = (code: string) => canonAop(choices[code] ?? "")
-  const missing = rows.some((row) => !isSelectableAop(chosen(row.code), form))
+  const missing = rows.some((row) => {
+    const raw = (choices[row.code] ?? "").trim()
+    if (!raw) return Boolean(row.suggested)
+    return !isSelectableAop(chosen(row.code), form)
+  })
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5">

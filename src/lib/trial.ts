@@ -167,7 +167,7 @@ export function buildStatement(
   const warnings = [...current.warnings, ...previous.warnings, ...income.warnings]
   const balanced = sameDisplayedTotal(shownAssets, shownSources)
   if (!balanced) {
-    warnings.push(...offSheetWarnings(accounts))
+    warnings.push(...offSheetWarnings(accounts, formulas, form))
     warnings.push(balanceDifferenceSentence(shownAssets, shownSources))
   }
 
@@ -245,6 +245,7 @@ function class93CreditIncrease(accounts: Account[]): number {
   return credit("close") - credit("open")
 }
 
+/** Vsi konti z zneskom, tudi analitični podkonti in razredi 5, 6 in 8. Seštevek nadrejenega konta jih ne izpusti. */
 export function accountRows(text: string, formulas: AccountFormula[] = [], form: LegalForm = "doo"): AccountRow[] {
   let accounts: Account[]
   try {
@@ -255,30 +256,25 @@ export function accountRows(text: string, formulas: AccountFormula[] = [], form:
   if (accounts.length < 3) return []
 
   const rows = new Map<string, AccountRow>()
-  for (const account of balancePostingAccounts(accounts)) {
-    const field = net(account, "close") !== 0 ? "close" : "open"
-    const suggested = standardAop(account, field, form) ?? class93Suggestion(account, field, form) ?? ""
-    const formula = matchFormula(account.code, formulas)
-    const aop = formula?.aop || suggested
-    rows.set(account.code, {
-      code: account.code,
-      name: account.name,
-      amount: displayBalance(account, field, aop || suggested, form),
-      aop,
-      suggested,
-      obrazec: incomeKind(aop, form) ? "izkaz" : "bilanca",
-      saved: Boolean(formula),
-    })
+  for (const account of accounts) {
+    if (!accountHasAmount(account)) continue
+    rows.set(account.code, accountRow(account, formulas, form))
   }
 
-  for (const account of incomePostingParts(accounts)) {
-    if (rows.has(account.code)) continue
-    const signed = account.turnDebit - account.turnCredit
-    if (signed === 0 && net(account, "close") === 0 && net(account, "open") === 0) continue
+  return [...rows.values()].sort((left, right) => left.code.localeCompare(right.code, "sl", { numeric: true }))
+}
+
+function accountHasAmount(account: Account): boolean {
+  return net(account, "open") !== 0 || net(account, "close") !== 0 || account.turnDebit !== 0 || account.turnCredit !== 0
+}
+
+function accountRow(account: Account, formulas: AccountFormula[], form: LegalForm): AccountRow {
+  const income = account.code.startsWith("4") || account.code.startsWith("7")
+  if (income) {
     const suggested = resolveIncome(account.code, account.name, form)?.aop ?? ""
     const formula = matchFormula(account.code, formulas)
     const aop = formula?.aop || suggested
-    rows.set(account.code, {
+    return {
       code: account.code,
       name: account.name,
       amount: displayIncome(account, aop || suggested, form),
@@ -286,10 +282,22 @@ export function accountRows(text: string, formulas: AccountFormula[] = [], form:
       suggested,
       obrazec: isBalanceLeaf(aop, form) && !incomeKind(aop, form) ? "bilanca" : "izkaz",
       saved: Boolean(formula),
-    })
+    }
   }
 
-  return [...rows.values()].sort((left, right) => left.code.localeCompare(right.code, "sl", { numeric: true }))
+  const field = net(account, "close") !== 0 ? "close" : "open"
+  const suggested = standardAop(account, field, form) ?? class93Suggestion(account, field, form) ?? ""
+  const formula = matchFormula(account.code, formulas)
+  const aop = formula?.aop || suggested
+  return {
+    code: account.code,
+    name: account.name,
+    amount: displayBalance(account, field, aop || suggested, form),
+    aop,
+    suggested,
+    obrazec: incomeKind(aop, form) ? "izkaz" : "bilanca",
+    saved: Boolean(formula),
+  }
 }
 
 export function accountQuestions(text: string, formulas: AccountFormula[] = [], form: LegalForm = "doo"): AccountRow[] {
@@ -347,6 +355,13 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
   } else if (retained > 0) add(leaves, "068", retained)
   else if (retained < 0) add(leaves, "069", -retained)
 
+  for (const account of offSheetFormulaPostings(accounts, formulas, field, form)) {
+    const override = balanceOverride(account, formulas, field, form)
+    if (override && isBalanceLeaf(override, form) && !incomeKind(override, form)) {
+      postBalance(leaves, override, net(account, field), form)
+    }
+  }
+
   return { leaves, warnings }
 }
 
@@ -355,14 +370,46 @@ function unplaced(account: Account, netDebit: number): string {
 }
 
 /** Razredi 5, 6 in 8 niso na bilanci. Če imajo saldo, ga navedemo po imenu. */
-function offSheetWarnings(accounts: Account[]): string[] {
+function offSheetWarnings(accounts: Account[], formulas: AccountFormula[] = [], form: LegalForm = "doo"): string[] {
   const relevant = accounts.filter((account) => "568".includes(account.code[0] ?? ""))
   const warnings: string[] = []
+  const placed = offSheetFormulaPostings(accounts, formulas, "close", form)
   for (const account of balancePostings(relevant, "close")) {
+    if (placed.some((item) => item.code === account.code || item.code.startsWith(account.code))) continue
     const netDebit = net(account, "close")
     if (netDebit !== 0) warnings.push(unplaced(account, netDebit))
   }
   return warnings
+}
+
+/**
+ * Konto razreda 5, 6 ali 8, ki mu je stranka določila AOP.
+ * Analitični konto ostane, tudi če se njegov znesek sešteje v nadrejeni konto.
+ * Nadrejeni konto se ne knjiži še enkrat, če je analitični že razporejen.
+ */
+function offSheetFormulaPostings(
+  accounts: Account[],
+  formulas: AccountFormula[],
+  field: "open" | "close",
+  form: LegalForm,
+): Account[] {
+  if (!formulas.length) return []
+  const off = accounts.filter((account) => "568".includes(account.code[0] ?? "") && net(account, field) !== 0)
+  if (!off.length) return []
+  const partitioned = balancePostings(off, field)
+  const droppedExact = off.filter(
+    (account) =>
+      formulas.some((formula) => formula.code === account.code && isSelectableAop(formula.aop, form)) &&
+      !partitioned.some((item) => item.code === account.code),
+  )
+  const kept = partitioned.filter(
+    (account) =>
+      !droppedExact.some((child) => child.code.startsWith(account.code) && child.code.length > account.code.length),
+  )
+  return [...kept, ...droppedExact].filter((account) => {
+    const formula = matchFormula(account.code, formulas)
+    return Boolean(formula && isSelectableAop(formula.aop, form))
+  })
 }
 
 function balancePostings(accounts: Account[], field: "open" | "close"): Account[] {
@@ -416,6 +463,11 @@ function incomeLeaves(accounts: Account[], formulas: AccountFormula[], form: Leg
   const relevant = accounts.filter((account) => "01239".includes(account.code[0] ?? ""))
   for (const account of balancePostings(relevant, "close")) {
     const override = balanceOverride(account, formulas, "close", form)
+    if (override && incomeKind(override, form)) postIncome(leaves, account, override, form)
+  }
+
+  for (const account of offSheetFormulaPostings(accounts, formulas, "close", form)) {
+    const override = incomeOverride(account, formulas, form)
     if (override && incomeKind(override, form)) postIncome(leaves, account, override, form)
   }
 
@@ -537,6 +589,13 @@ function formulaNotes(accounts: Account[], formulas: AccountFormula[], form: Leg
   for (const account of incomePostingParts(accounts)) {
     if (seen.has(account.code)) continue
     const override = incomeOverride(account, formulas, form)
+    if (!override) continue
+    seen.add(account.code)
+    notes.push(`Konto ${account.code} ${account.name} je po formuli stranke na AOP ${override}.`)
+  }
+  for (const account of offSheetFormulaPostings(accounts, formulas, "close", form)) {
+    if (seen.has(account.code)) continue
+    const override = balanceOverride(account, formulas, "close", form)
     if (!override) continue
     notes.push(`Konto ${account.code} ${account.name} je po formuli stranke na AOP ${override}.`)
   }

@@ -7,8 +7,8 @@ import { formatCents } from "./format.ts"
 import { statementFromPdf } from "./from-pdf.ts"
 import { grafam } from "./grafam.ts"
 import { rollupIncome } from "./income.ts"
-import { formulasForEditor } from "./account-map.ts"
-import { accountQuestions, applyCurrentAmount, buildStatement } from "./trial.ts"
+import { filterAccountRows, formulasForEditor } from "./account-map.ts"
+import { accountQuestions, accountRows, applyCurrentAmount, buildStatement } from "./trial.ts"
 
 test("kratek izpis se razporedi na terjatve in obveznosti do dobaviteljev", () => {
   const statement = buildStatement(
@@ -242,6 +242,39 @@ test("usklajena bilanca z dobičkom in staro izgubo nima opozorila o razliki", (
     issues.some((issue) => issue.imbalance || issue.severity === "error"),
     false,
   )
+})
+
+test("iskanje 600001 najde analitični konto poleg 600 in 600000", () => {
+  const text = [
+    "ADREMA d.o.o.",
+    "Bilanca za obdobje 01.01.2026-31.08.2026",
+    "600 NEDOKONČANA PROIZVODNJA",
+    "6.609,03 0,00 0,00 0,00 6.609,03 0,00 6.609,03 0,00",
+    "600000 Razvijanje izdelka Guest Copilot",
+    "5.869,00 0,00 0,00 0,00 5.869,00 0,00 5.869,00 0,00",
+    "600001 Bolha Fashion - priprava kolekcije",
+    "740,03 0,00 0,00 0,00 740,03 0,00 740,03 0,00",
+  ].join("\n")
+
+  const rows = accountRows(text)
+  const hit = filterAccountRows(rows, "600001")
+  assert.equal(hit.length, 1)
+  assert.equal(hit[0]?.code, "600001")
+  assert.equal(hit[0]?.name, "Bolha Fashion - priprava kolekcije")
+  assert.equal(hit[0]?.amount, 74_003)
+
+  const prefix = filterAccountRows(rows, "600").map((row) => row.code)
+  assert.deepEqual(prefix, ["600", "600000", "600001"])
+
+  const plain = buildStatement(text, "adrema.pdf")
+  assert.equal(plain.balance.current["036"], undefined)
+
+  const mapped = buildStatement(text, "adrema.pdf", [{ code: "600001", aop: "036" }])
+  assert.equal(mapped.balance.current["036"], 74_003)
+  assert.equal(mapped.balance.current["070"], undefined)
+  const mappedHit = filterAccountRows(accountRows(text, [{ code: "600001", aop: "036" }]), "600001")
+  assert.equal(mappedHit[0]?.aop, "036")
+  assert.equal(mappedHit[0]?.amount, 74_003)
 })
 
 test("konto, ki ni na bilanci, poimenuje razliko 40.822,93", () => {
