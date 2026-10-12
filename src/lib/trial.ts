@@ -1,10 +1,18 @@
-import { matchFormula, type AccountFormula, type AccountRow, isBalanceLeaf, isSelectableAop } from "@/lib/account-map"
+import {
+  NIKAMOR,
+  isNikamor,
+  matchFormula,
+  type AccountFormula,
+  type AccountRow,
+  isBalanceLine,
+  isSelectableAop,
+} from "@/lib/account-map"
 import { attachPublicFiling, type PublicFiling } from "@/lib/ajpes-public"
 import { chart } from "@/lib/charts"
 import { balanceDifferenceSentence, rollup, sameDisplayedTotal, sheetWarnings } from "@/lib/compute"
 import { normiraniSplit, type DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
-import { incomeKind, incomeLines, postsInterestMemo, rollupIncome } from "@/lib/income"
+import { incomeFlow, incomeKind, incomeLines, postsInterestMemo, rollupIncome } from "@/lib/income"
 import { legalFormOf, resultAops, type LegalForm } from "@/lib/legal-form"
 
 export type Statement = {
@@ -295,7 +303,7 @@ function accountRow(account: Account, formulas: AccountFormula[], form: LegalFor
       amount: displayIncome(account, aop || suggested, form),
       aop,
       suggested,
-      obrazec: isBalanceLeaf(aop, form) && !incomeKind(aop, form) ? "bilanca" : "izkaz",
+      obrazec: isBalanceLine(aop, form) && !incomeFlow(aop, form) ? "bilanca" : "izkaz",
       saved: Boolean(formula),
     }
   }
@@ -310,7 +318,7 @@ function accountRow(account: Account, formulas: AccountFormula[], form: LegalFor
     amount: displayBalance(account, field, aop || suggested, form),
     aop,
     suggested,
-    obrazec: incomeKind(aop, form) ? "izkaz" : "bilanca",
+    obrazec: incomeFlow(aop, form) ? "izkaz" : "bilanca",
     saved: Boolean(formula),
   }
 }
@@ -324,12 +332,22 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
   const warnings: string[] = []
   let retained = 0
   const relevant = accounts.filter((account) => "01239".includes(account.code[0] ?? ""))
+  const postings = balancePostings(relevant, field)
 
-  for (const account of balancePostings(relevant, field)) {
-    const netDebit = net(account, field)
+  for (const account of postings) {
     const override = balanceOverride(account, formulas, field, form)
+    if (isPopravek008500(account.code)) {
+      if (override && override !== NIKAMOR && isBalanceLine(override, form)) {
+        postBalance(leaves, override, net(account, field), form)
+      } else if (override !== NIKAMOR && !grossAbsorbsPopravek(postings, formulas, field, form)) {
+        const dest = balanceTarget("005", form)?.aop
+        if (dest) postBalance(leaves, dest, net(account, field), form)
+      }
+      continue
+    }
+    const netDebit = net(account, field) + popravekShare(account, postings, formulas, field, form)
     if (override) {
-      if (isBalanceLeaf(override, form)) postBalance(leaves, override, netDebit, form)
+      if (override !== NIKAMOR && isBalanceLine(override, form)) postBalance(leaves, override, netDebit, form)
       continue
     }
     const root = account.code.slice(0, 3)
@@ -360,7 +378,7 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
 
   for (const account of incomePostingParts(accounts)) {
     const override = incomeOverride(account, formulas, form)
-    if (override && isBalanceLeaf(override, form)) postBalance(leaves, override, net(account, field), form)
+    if (override && isBalanceLine(override, form)) postBalance(leaves, override, net(account, field), form)
   }
 
   if (form === "sp") {
@@ -372,7 +390,7 @@ function column(accounts: Account[], field: "open" | "close", formulas: AccountF
 
   for (const account of offSheetFormulaPostings(accounts, formulas, field, form)) {
     const override = balanceOverride(account, formulas, field, form)
-    if (override && isBalanceLeaf(override, form) && !incomeKind(override, form)) {
+    if (override && isBalanceLine(override, form) && !incomeFlow(override, form)) {
       postBalance(leaves, override, net(account, field), form)
     }
   }
@@ -391,6 +409,8 @@ function offSheetWarnings(accounts: Account[], formulas: AccountFormula[] = [], 
   const placed = offSheetFormulaPostings(accounts, formulas, "close", form)
   for (const account of balancePostings(relevant, "close")) {
     if (placed.some((item) => item.code === account.code || item.code.startsWith(account.code))) continue
+    const formula = matchFormula(account.code, formulas)
+    if (formula && isNikamor(formula.aop)) continue
     const netDebit = net(account, "close")
     if (netDebit !== 0) warnings.push(unplaced(account, netDebit))
   }
@@ -459,7 +479,7 @@ function incomeLeaves(accounts: Account[], formulas: AccountFormula[], form: Leg
   for (const part of incomePostingParts(accounts)) {
     const override = incomeOverride(part, formulas, form)
     if (override) {
-      if (incomeKind(override, form)) postIncome(leaves, part, override, form)
+      if (incomeFlow(override, form)) postIncome(leaves, part, override, form)
       continue
     }
     const rule = resolveIncome(part.code, part.name, form)
@@ -478,12 +498,12 @@ function incomeLeaves(accounts: Account[], formulas: AccountFormula[], form: Leg
   const relevant = accounts.filter((account) => "01239".includes(account.code[0] ?? ""))
   for (const account of balancePostings(relevant, "close")) {
     const override = balanceOverride(account, formulas, "close", form)
-    if (override && incomeKind(override, form)) postIncome(leaves, account, override, form)
+    if (override && incomeFlow(override, form)) postIncome(leaves, account, override, form)
   }
 
   for (const account of offSheetFormulaPostings(accounts, formulas, "close", form)) {
     const override = incomeOverride(account, formulas, form)
-    if (override && incomeKind(override, form)) postIncome(leaves, account, override, form)
+    if (override && incomeFlow(override, form)) postIncome(leaves, account, override, form)
   }
 
   return { leaves, warnings }
@@ -514,9 +534,74 @@ function balancePostingAccounts(accounts: Account[]): Account[] {
   return [...found.values()]
 }
 
+/**
+ * 008500 je popravek vrednosti konta 005000 (druga neopredmetena sredstva).
+ * Analitika, na primer 0085001, ostane pri istem popravku.
+ */
+function isPopravek008500(code: string): boolean {
+  return code === "008500" || code.startsWith("008500")
+}
+
+function ownsGross(postingCode: string, grossCode: string, postings: Account[]): boolean {
+  if (isPopravek008500(postingCode)) return false
+  if (postingCode === grossCode) return true
+  if (grossCode.startsWith(postingCode) && postingCode.length < grossCode.length) {
+    const closer = postings.some(
+      (item) =>
+        !isPopravek008500(item.code) &&
+        item.code !== postingCode &&
+        grossCode.startsWith(item.code) &&
+        item.code.length > postingCode.length,
+    )
+    return !closer
+  }
+  return false
+}
+
+function hasOwnBalanceLine(
+  account: Account,
+  formulas: AccountFormula[],
+  field: "open" | "close",
+  form: LegalForm,
+): boolean {
+  const override = balanceOverride(account, formulas, field, form)
+  return Boolean(override && override !== NIKAMOR && isBalanceLine(override, form))
+}
+
+/** Konto 005000 je v tej stolpcu in bo dobil pripadajoči popravek vrednosti. */
+function grossAbsorbsPopravek(
+  postings: Account[],
+  formulas: AccountFormula[],
+  field: "open" | "close",
+  form: LegalForm,
+): boolean {
+  return postings.some(
+    (item) => ownsGross(item.code, "005000", postings) && balanceOverride(item, formulas, field, form) !== NIKAMOR,
+  )
+}
+
+function popravekShare(
+  posting: Account,
+  postings: Account[],
+  formulas: AccountFormula[],
+  field: "open" | "close",
+  form: LegalForm,
+): number {
+  if (!ownsGross(posting.code, "005000", postings)) return 0
+  let sum = 0
+  for (const contra of postings) {
+    if (!isPopravek008500(contra.code)) continue
+    if (hasOwnBalanceLine(contra, formulas, field, form)) continue
+    sum += net(contra, field)
+  }
+  return sum
+}
+
 function balanceOverride(account: Account, formulas: AccountFormula[], field: "open" | "close", form: LegalForm): string | null {
   const formula = matchFormula(account.code, formulas)
-  if (!formula || !isSelectableAop(formula.aop, form)) return null
+  if (!formula) return null
+  if (isNikamor(formula.aop)) return NIKAMOR
+  if (!isSelectableAop(formula.aop, form)) return null
   if (account.code.startsWith("93")) {
     const auto = class93Suggestion(account, field, form)
     if ((auto && formula.aop === auto) || formula.aop === "068" || formula.aop === "069") return null
@@ -528,13 +613,16 @@ function balanceOverride(account: Account, formulas: AccountFormula[], field: "o
 
 function incomeOverride(account: Account, formulas: AccountFormula[], form: LegalForm): string | null {
   const formula = matchFormula(account.code, formulas)
-  if (!formula || !isSelectableAop(formula.aop, form)) return null
+  if (!formula) return null
+  if (isNikamor(formula.aop)) return NIKAMOR
+  if (!isSelectableAop(formula.aop, form)) return null
   const standard = resolveIncome(account.code, account.name, form)?.aop
   if (standard && formula.aop === standard) return null
   return formula.aop
 }
 
 function standardAop(account: Account, field: "open" | "close", form: LegalForm): string | null {
+  if (isPopravek008500(account.code)) return null
   const netDebit = net(account, field)
   const root = account.code.slice(0, 3)
   if (root.length < 3 || root.startsWith("93")) return null
@@ -567,7 +655,7 @@ function postBalance(leaves: Record<string, number>, aop: string, netDebit: numb
 }
 
 function postIncome(leaves: Record<string, number>, account: Account, aop: string, form: LegalForm) {
-  const kind = incomeKind(aop, form)
+  const kind = incomeFlow(aop, form)
   if (!kind) return
   const turn = account.turnDebit - account.turnCredit
   const signed = turn !== 0 ? turn : net(account, "close")
@@ -588,7 +676,7 @@ function displayBalance(account: Account, field: "open" | "close", aop: string, 
 function displayIncome(account: Account, aop: string, form: LegalForm): number {
   const turn = account.turnDebit - account.turnCredit
   const signed = turn !== 0 ? turn : net(account, "close")
-  return incomeKind(aop, form) === "revenue" ? -signed : signed
+  return incomeFlow(aop, form) === "revenue" ? -signed : signed
 }
 
 function formulaNotes(accounts: Account[], formulas: AccountFormula[], form: LegalForm): string[] {
@@ -597,21 +685,21 @@ function formulaNotes(accounts: Account[], formulas: AccountFormula[], form: Leg
   for (const account of balancePostingAccounts(accounts)) {
     const field = net(account, "close") !== 0 ? "close" : "open"
     const override = balanceOverride(account, formulas, field, form)
-    if (!override) continue
+    if (!override || override === NIKAMOR) continue
     seen.add(account.code)
     notes.push(`Konto ${account.code} ${account.name} je po formuli stranke na AOP ${override}.`)
   }
   for (const account of incomePostingParts(accounts)) {
     if (seen.has(account.code)) continue
     const override = incomeOverride(account, formulas, form)
-    if (!override) continue
+    if (!override || override === NIKAMOR) continue
     seen.add(account.code)
     notes.push(`Konto ${account.code} ${account.name} je po formuli stranke na AOP ${override}.`)
   }
   for (const account of offSheetFormulaPostings(accounts, formulas, "close", form)) {
     if (seen.has(account.code)) continue
     const override = balanceOverride(account, formulas, "close", form)
-    if (!override) continue
+    if (!override || override === NIKAMOR) continue
     notes.push(`Konto ${account.code} ${account.name} je po formuli stranke na AOP ${override}.`)
   }
   return notes

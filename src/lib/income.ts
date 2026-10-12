@@ -163,6 +163,34 @@ const ZAVOD_LABELS: Record<string, string> = {
   "187": "Š. Čisti presežek odhodkov",
 }
 
+const FINANCE_DETAIL: Record<string, IncomeLine[]> = {
+  "155": [
+    { aop: "156", label: "1. Finančni prihodki iz deležev v družbah v skupini", depth: 2 },
+    { aop: "157", label: "2. Finančni prihodki iz deležev v pridruženih družbah", depth: 2 },
+    { aop: "158", label: "3. Finančni prihodki iz deležev v drugih družbah", depth: 2 },
+    { aop: "159", label: "4. Finančni prihodki iz drugih naložb", depth: 2 },
+  ],
+  "160": [
+    { aop: "161", label: "1. Finančni prihodki iz posojil, danih družbam v skupini", depth: 2 },
+    { aop: "162", label: "2. Finančni prihodki iz posojil, danih drugim", depth: 2 },
+  ],
+  "163": [
+    { aop: "164", label: "1. Finančni prihodki iz poslovnih terjatev do družb v skupini", depth: 2 },
+    { aop: "165", label: "2. Finančni prihodki iz poslovnih terjatev do drugih", depth: 2 },
+  ],
+}
+
+/** Podpostavke finančnih prihodkov so na obrazcu družbe in samostojnega podjetnika. */
+function withFinanceDetail(lines: IncomeLine[]): IncomeLine[] {
+  const out: IncomeLine[] = []
+  for (const line of lines) {
+    out.push(line)
+    const detail = FINANCE_DETAIL[line.aop]
+    if (detail) out.push(...detail)
+  }
+  return out
+}
+
 const incomeCache = new Map<LegalForm, IncomeLine[]>()
 
 export function incomeLines(form: LegalForm = "doo"): IncomeLine[] {
@@ -174,11 +202,12 @@ export function incomeLines(form: LegalForm = "doo"): IncomeLine[] {
 }
 
 function buildIncomeLines(form: LegalForm): IncomeLine[] {
-  if (form === "doo") return INCOME_LINES
+  const source = form === "drustvo" || form === "zavod" ? INCOME_LINES : withFinanceDetail(INCOME_LINES)
+  if (form === "doo") return source
   const drop = form === "sp" ? new Set(["149", "150", "184", "185", "186", "187"]) : form === "drustvo" ? new Set(["185"]) : new Set<string>()
   const labels = form === "sp" ? SP_LABELS : form === "drustvo" ? DRUSTVO_LABELS : ZAVOD_LABELS
   const lines: IncomeLine[] = []
-  for (const line of INCOME_LINES) {
+  for (const line of source) {
     if (drop.has(line.aop)) continue
     lines.push(labels[line.aop] ? { ...line, label: labels[line.aop] } : line)
     if (form === "sp" && line.aop === "148") {
@@ -200,12 +229,12 @@ export function rollupIncome(leaves: Record<string, number>, form: LegalForm = "
     let sum = 0
     for (const id of formula.add) sum += values[id] ?? 0
     for (const id of formula.sub ?? []) sum -= values[id] ?? 0
-    values[aop] = sum
+    values[aop] = (leaves[aop] ?? 0) + sum
   }
 
   const operating = (values["126"] ?? 0) - (values["127"] ?? 0)
-  values["151"] = operating > 0 ? operating : 0
-  values["152"] = operating < 0 ? -operating : 0
+  values["151"] = (operating > 0 ? operating : 0) + (leaves["151"] ?? 0)
+  values["152"] = (operating < 0 ? -operating : 0) + (leaves["152"] ?? 0)
 
   const total =
     (values["151"] ?? 0) -
@@ -214,14 +243,14 @@ export function rollupIncome(leaves: Record<string, number>, form: LegalForm = "
     (values["166"] ?? 0) +
     (values["178"] ?? 0) -
     (values["181"] ?? 0)
-  values["182"] = total > 0 ? total : 0
-  values["183"] = total < 0 ? -total : 0
+  values["182"] = (total > 0 ? total : 0) + (leaves["182"] ?? 0)
+  values["183"] = (total < 0 ? -total : 0) + (leaves["183"] ?? 0)
   if (form === "sp") return values
 
   const deferredTax = form === "drustvo" ? 0 : (values["185"] ?? 0)
   const net = (values["182"] ?? 0) - (values["183"] ?? 0) - (values["184"] ?? 0) - deferredTax
-  values["186"] = net > 0 ? net : 0
-  values["187"] = net < 0 ? -net : 0
+  values["186"] = (net > 0 ? net : 0) + (leaves["186"] ?? 0)
+  values["187"] = (net < 0 ? -net : 0) + (leaves["187"] ?? 0)
   return values
 }
 
@@ -239,8 +268,35 @@ const REVENUE_AOPS = new Set([
   "123",
   "124",
   "125",
+  "156",
+  "157",
+  "158",
+  "159",
+  "161",
+  "162",
+  "164",
+  "165",
   "179",
   "180",
+])
+
+/** Nadrejene in že vključene postavke, na katere sme pasti prihodek. */
+const REVENUE_FLOW = new Set([
+  ...REVENUE_AOPS,
+  "110",
+  "111",
+  "115",
+  "118",
+  "126",
+  "151",
+  "153",
+  "154",
+  "155",
+  "160",
+  "163",
+  "178",
+  "182",
+  "186",
 ])
 
 const SP_RESULT = new Set(["151", "152", "182", "183"])
@@ -267,6 +323,12 @@ export function incomeKind(aop: string, form?: LegalForm): "expense" | "revenue"
     if (kind) return kind
   }
   return null
+}
+
+/** Predznak zneska za katero koli postavko izkaza, tudi za seštevek. */
+export function incomeFlow(aop: string, form: LegalForm = "doo"): "expense" | "revenue" | null {
+  if (!incomeLines(form).some((line) => line.aop === aop)) return null
+  return REVENUE_FLOW.has(aop) ? "revenue" : "expense"
 }
 
 /** Obresti, ki so že v odhodku, se prikažejo še na AOP 167. */

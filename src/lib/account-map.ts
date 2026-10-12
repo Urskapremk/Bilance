@@ -1,7 +1,6 @@
 import { chart } from "@/lib/charts"
-import { incomeKind, incomeLines } from "@/lib/income"
-import type { LegalForm } from "@/lib/legal-form"
-import { LINE_BY_AOP, LEAF_AOPS } from "@/lib/schema"
+import { incomeLines } from "@/lib/income"
+import { LEGAL_FORMS, type LegalForm } from "@/lib/legal-form"
 
 export type AccountFormula = {
   code: string
@@ -53,6 +52,14 @@ export function matchFormula(code: string, formulas: AccountFormula[]): AccountF
   return best
 }
 
+/** Konto se ne vpiše na nobeno postavko obrazca. */
+export const NIKAMOR = "nikamor"
+
+export function isNikamor(value: string): boolean {
+  const text = value.trim().toLocaleLowerCase("sl").replace(/\s+/g, " ")
+  return text === NIKAMOR || text === "ne vpiši nikamor" || text === "ne vpisi nikamor"
+}
+
 export function canonAop(value: string): string {
   const match = /^(\d+)([a-z])?$/i.exec(value.trim())
   if (!match?.[1]) return ""
@@ -60,14 +67,31 @@ export function canonAop(value: string): string {
 }
 
 export function isBalanceLeaf(aop: string, form: LegalForm = "doo"): boolean {
+  const canon = canonAop(aop)
   const spec = chart(form)
-  const line = spec.lineByAop[aop]
-  return Boolean(line && !(aop in spec.formulas))
+  const line = spec.lineByAop[canon]
+  return Boolean(line && !(canon in spec.formulas))
 }
 
+/** Postavka je na bilanci te pravne oblike, tudi če je seštevek podpostavk. */
+export function isBalanceLine(aop: string, form: LegalForm = "doo"): boolean {
+  const canon = canonAop(aop)
+  return Boolean(canon && chart(form).lineByAop[canon])
+}
+
+function lineOnForm(aop: string, form: LegalForm): boolean {
+  return isBalanceLine(aop, form) || incomeLines(form).some((line) => line.aop === aop)
+}
+
+/**
+ * Vsaka oznaka, ki je na obrazcu te pravne oblike.
+ * Seštevki, na primer AOP 004, so veljavni. Oznaka, ki je ni na obrazcu, ni.
+ */
 export function isSelectableAop(aop: string, form?: LegalForm): boolean {
-  if (form) return isBalanceLeaf(aop, form) || incomeKind(aop, form) !== null
-  return (["doo", "drustvo", "zavod", "sp"] as const).some((item) => isSelectableAop(aop, item))
+  const canon = canonAop(aop)
+  if (!canon) return false
+  if (form) return lineOnForm(canon, form)
+  return LEGAL_FORMS.some((item) => lineOnForm(canon, item))
 }
 
 export function normalizeFormulas(input: unknown): AccountFormula[] {
@@ -79,8 +103,8 @@ export function normalizeFormulas(input: unknown): AccountFormula[] {
     const code = typeof record.code === "string" ? record.code.trim() : ""
     const rawAop = typeof record.aop === "string" ? record.aop.trim() : ""
     if (!/^\d{3,12}$/.test(code)) continue
-    const aop = canonAop(rawAop)
-    if (!isSelectableAop(aop)) continue
+    const aop = isNikamor(rawAop) ? NIKAMOR : canonAop(rawAop)
+    if (aop !== NIKAMOR && !isSelectableAop(aop)) continue
     const next = { code, aop }
     const index = out.findIndex((formula) => formula.code === code)
     if (index >= 0) out[index] = next
@@ -104,7 +128,12 @@ export function formulasForEditor(
   const kept = stored.filter((formula) => !touched.has(formula.code))
   const chosen: AccountFormula[] = []
   for (const row of rows) {
-    const aop = canonAop(choices[row.code] ?? "")
+    const raw = choices[row.code] ?? ""
+    if (isNikamor(raw)) {
+      if (row.suggested !== NIKAMOR) chosen.push({ code: row.code, aop: NIKAMOR })
+      continue
+    }
+    const aop = canonAop(raw)
     if (!isSelectableAop(aop, form) || aop === row.suggested) continue
     chosen.push({ code: row.code, aop })
   }
@@ -114,14 +143,9 @@ export function formulasForEditor(
 export function choicesFor(form: LegalForm = "doo"): { bilanca: AopChoice[]; izkaz: AopChoice[] } {
   const spec = chart(form)
   return {
-    bilanca: spec.leafAops.map((aop) => ({ aop, label: spec.lineByAop[aop]?.label ?? aop })),
-    izkaz: incomeLines(form)
-      .filter((line) => incomeKind(line.aop, form) !== null)
-      .map((line) => ({ aop: line.aop, label: line.label })),
+    bilanca: spec.lines.map((line) => ({ aop: line.aop, label: line.label })),
+    izkaz: incomeLines(form).map((line) => ({ aop: line.aop, label: line.label })),
   }
 }
 
-export const AOP_CHOICES: { bilanca: AopChoice[]; izkaz: AopChoice[] } = {
-  bilanca: LEAF_AOPS.map((aop) => ({ aop, label: LINE_BY_AOP[aop]?.label ?? aop })),
-  izkaz: choicesFor("doo").izkaz,
-}
+export const AOP_CHOICES: { bilanca: AopChoice[]; izkaz: AopChoice[] } = choicesFor("doo")

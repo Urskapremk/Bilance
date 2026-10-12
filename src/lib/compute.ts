@@ -73,7 +73,8 @@ export function rollup(leaves: AmountMap, form: LegalForm = "doo"): AmountMap {
     let sum = 0
     for (const id of formula.add) sum += values[id] ?? 0
     for (const id of formula.sub ?? []) sum -= values[id] ?? 0
-    values[aop] = sum
+    // Znesek, ki je vpisan neposredno na seštevek, ostane poleg podpostavk.
+    values[aop] = (leaves[aop] ?? 0) + sum
   }
   return values
 }

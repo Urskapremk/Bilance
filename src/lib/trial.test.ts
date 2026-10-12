@@ -11,7 +11,7 @@ import { statementFromPdf } from "./from-pdf.ts"
 import { pdfToText } from "./pdf-lines.ts"
 import { grafam } from "./grafam.ts"
 import { rollupIncome } from "./income.ts"
-import { filterAccountRows, formulasForEditor } from "./account-map.ts"
+import { filterAccountRows, formulasForEditor, normalizeFormulas } from "./account-map.ts"
 import { accountQuestions, accountRows, accountsForSearch, applyCurrentAmount, buildStatement } from "./trial.ts"
 
 test("kratek izpis se razporedi na terjatve in obveznosti do dobaviteljev", () => {
@@ -590,6 +590,65 @@ test("hkrati vknjižen dobiček in izguba ostaneta le pravi izid", () => {
   assert.equal(statement.balance.current["071"], undefined)
   const current = rollup(statement.balance.current)
   assert.equal(current["001"], current["055"])
+})
+
+test("005000 in 008500 data na AOP 004 razliko, 008500 pa ni na 007", () => {
+  const text = [
+    "ADREMA d.o.o.",
+    "Bilanca za obdobje 01.01.2026-31.08.2026",
+    "005000 Druga neopredmetena sredstva",
+    "10.000,00 0,00 0,00 0,00 10.000,00 0,00 10.000,00 0,00",
+    "008500 Popravek vrednosti - druga neopredmetena sredstva",
+    "0,00 1.168,50 0,00 0,00 0,00 1.168,50 0,00 1.168,50",
+    "900 Osnovni kapital",
+    "0,00 8.831,50 0,00 0,00 0,00 8.831,50 0,00 8.831,50",
+  ].join("\n")
+  const difference = 1_000_000 - 116_850
+
+  const statement = buildStatement(text, "adrema.pdf")
+  assert.equal(rollup(statement.balance.current)["004"], difference)
+  assert.equal(statement.balance.current["007"] ?? 0, 0)
+  assert.equal(accountRows(text).find((row) => row.code === "008500")?.suggested ?? "", "")
+
+  const mapped = buildStatement(text, "adrema.pdf", [
+    { code: "005000", aop: "004" },
+    { code: "008500", aop: "nikamor" },
+  ])
+  assert.equal(mapped.balance.current["004"], difference)
+  assert.equal(mapped.balance.current["008"] ?? 0, 0)
+  assert.equal(mapped.balance.current["007"] ?? 0, 0)
+  assert.equal(rollup(mapped.balance.current)["004"], difference)
+})
+
+test("konto z izbiro nikamor ne spremeni nobene postavke", () => {
+  const base = [
+    "ACME d.o.o.",
+    "Bilanca za obdobje 01.01.2026-31.01.2026",
+    "1100 Denarna sredstva",
+    "100,00 0,00 0,00 0,00 100,00 0,00 100,00 0,00",
+    "900 Osnovni kapital",
+    "0,00 100,00 0,00 0,00 0,00 100,00 0,00 100,00",
+    "400 Material",
+    "0,00 0,00 0,00 0,00 0,00 0,00 0,00 0,00",
+  ].join("\n")
+  const withReceivable = [
+    base,
+    "120 Kupci",
+    "50,00 0,00 0,00 0,00 50,00 0,00 50,00 0,00",
+  ].join("\n")
+
+  const plain = buildStatement(base, "brez.pdf")
+  const hidden = buildStatement(withReceivable, "skrit.pdf", [{ code: "120", aop: "nikamor" }])
+  assert.deepEqual(rollup(hidden.balance.current), rollup(plain.balance.current))
+  assert.equal(hidden.balance.current["050"] ?? 0, 0)
+  assert.equal(
+    Object.values(rollup(hidden.balance.current)).some((value) => value === 5_000),
+    false,
+  )
+
+  const rows = accountRows(withReceivable)
+  assert.deepEqual(formulasForEditor([], rows, { "120": "Ne vpiši nikamor" }), [{ code: "120", aop: "nikamor" }])
+  assert.deepEqual(normalizeFormulas([{ code: "120", aop: "nikamor" }]), [{ code: "120", aop: "nikamor" }])
 })
 
 function nonzero(values: Record<string, number>) {
