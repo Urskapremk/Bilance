@@ -47,7 +47,7 @@ import { inferLegalForm, legalFormOf, type LegalForm } from "@/lib/legal-form"
 import type { DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
 import { rollup, sheetWarnings } from "@/lib/compute"
-import { applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
+import { accountsForSearch, applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
 type ParsedTrial = {
@@ -269,15 +269,16 @@ export function BilanceApp() {
         if (draft?.statement && draft.pdf) {
           setError(null)
           setArchiveError(null)
-          textRef.current = draft.besedilo ?? ""
           const statement = withTaxContributions(draft.statement)
+          const besedilo = draft.besedilo ?? ""
+          textRef.current = besedilo
           applyWorkspace({
             statement,
             pdf: draft.pdf,
             pdfName: draft.pdfName,
             phase: "osnutek",
-            konti: draft.konti ?? [],
-            besedilo: draft.besedilo ?? "",
+            konti: accountsForSearch(draft.konti ?? [], besedilo, [], legalFormOf(statement)),
+            besedilo,
           })
           if (contributionsDrifted(draft.statement, statement)) persistOpenStatement(statement)
           if (!draft.besedilo) void hydrateText(draft.pdf, draft.pdfName)
@@ -386,10 +387,18 @@ export function BilanceApp() {
       const response = await fetch("/api/bruto-bilanca", { method: "POST", body })
       const data = (await response.json().catch(() => null)) as ParsedTrial | null
       if (!textRef.current && data?.besedilo) textRef.current = data.besedilo
-      if (data?.konti?.length && kontiRef.current.length === 0) {
-        setKonti(data.konti)
+      const rows = accountsForSearch(
+        data?.konti?.length ? data.konti : kontiRef.current,
+        textRef.current,
+        formulasRef.current,
+        legalFormOf(statementRef.current),
+      )
+      const storedCodes = new Set(kontiRef.current.map((row) => row.code))
+      const gained = rows.some((row) => !storedCodes.has(row.code))
+      if (rows.length && (kontiRef.current.length === 0 || gained)) {
+        setKonti(rows)
         const cached = workspaces.current.get(clientKey(activeClientRef.current))
-        if (cached) cacheWorkspace({ ...cached, konti: data.konti, besedilo: textRef.current })
+        if (cached) cacheWorkspace({ ...cached, konti: rows, besedilo: textRef.current })
       }
     } catch {
       /* naslednji popravek počaka na besedilo */
@@ -843,6 +852,34 @@ export function BilanceApp() {
     inputRef.current?.click()
   }
 
+  async function openAccountRules() {
+    const company = activeClientRef.current
+    try {
+      formulasRef.current = await readStoredFormulas(company)
+    } catch {
+      /* ostanejo formule, ki so že v pomnilniku */
+    }
+    if (!textRef.current) {
+      const pdf = openPdf()
+      if (pdf) await hydrateText(pdf, pdfNameRef.current)
+    }
+    const rows = accountsForSearch(
+      kontiRef.current,
+      textRef.current,
+      formulasRef.current,
+      legalFormOf(statementRef.current),
+    )
+    if (rows.length) {
+      setKonti(rows)
+      rememberWorkspace(statementRef.current, rows)
+      persistOpenStatement(statementRef.current, rows)
+    }
+    setFormulaMode("vse")
+    setFormulaRows(rows)
+    setFormulaError(null)
+    setFormulaOpen(true)
+  }
+
   async function selectClient(name: string) {
     setClientsOpen(false)
     setClientQuery("")
@@ -872,15 +909,16 @@ export function BilanceApp() {
       return
     }
     if (draft?.statement && draft.pdf) {
-      textRef.current = draft.besedilo ?? ""
       const statement = withTaxContributions(draft.statement)
+      const besedilo = draft.besedilo ?? ""
+      textRef.current = besedilo
       applyWorkspace({
         statement,
         pdf: draft.pdf,
         pdfName: draft.pdfName,
         phase: "osnutek",
-        konti: draft.konti ?? [],
-        besedilo: draft.besedilo ?? "",
+        konti: accountsForSearch(draft.konti ?? [], besedilo, formulasRef.current, legalFormOf(statement)),
+        besedilo,
       })
       if (contributionsDrifted(draft.statement, statement)) persistOpenStatement(statement)
       if (!draft.besedilo) void hydrateText(draft.pdf, draft.pdfName)
@@ -1364,19 +1402,7 @@ export function BilanceApp() {
                   type="button"
                   variant="outline"
                   disabled={busy || savingFormulas}
-                  onClick={() => {
-                    void readStoredFormulas(activeClient)
-                      .then((formule) => {
-                        formulasRef.current = formule
-                      })
-                      .catch(() => undefined)
-                      .finally(() => {
-                        setFormulaMode("vse")
-                        setFormulaRows(konti)
-                        setFormulaError(null)
-                        setFormulaOpen(true)
-                      })
-                  }}
+                  onClick={() => void openAccountRules()}
                 >
                   Pravila
                 </Button>

@@ -2,13 +2,17 @@ import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import test from "node:test"
 
+import fontkit from "@pdf-lib/fontkit"
+import { PDFDocument } from "pdf-lib"
+
 import { reviewColumn, rollup, sheetWarnings } from "./compute.ts"
 import { formatCents } from "./format.ts"
 import { statementFromPdf } from "./from-pdf.ts"
+import { pdfToText } from "./pdf-lines.ts"
 import { grafam } from "./grafam.ts"
 import { rollupIncome } from "./income.ts"
 import { filterAccountRows, formulasForEditor } from "./account-map.ts"
-import { accountQuestions, accountRows, applyCurrentAmount, buildStatement } from "./trial.ts"
+import { accountQuestions, accountRows, accountsForSearch, applyCurrentAmount, buildStatement } from "./trial.ts"
 
 test("kratek izpis se razporedi na terjatve in obveznosti do dobaviteljev", () => {
   const statement = buildStatement(
@@ -275,6 +279,82 @@ test("iskanje 600001 najde analitični konto poleg 600 in 600000", () => {
   const mappedHit = filterAccountRows(accountRows(text, [{ code: "600001", aop: "036" }]), "600001")
   assert.equal(mappedHit[0]?.aop, "036")
   assert.equal(mappedHit[0]?.amount, 74_003)
+})
+
+test("iskanje 600000 pokaže analitični konto iz PDF, tudi če shranjeni seznam pozna samo 600", () => {
+  const text = [
+    "ADREMA d.o.o.",
+    "Bilanca za obdobje 01.01.2026-31.08.2026",
+    "600 NEDOKONČANA PROIZVODNJA",
+    "6.609,03 0,00 0,00 0,00 6.609,03 0,00 6.609,03 0,00",
+    "600000 Razvijanje izdelka Guest Copilot",
+    "5.869,00 0,00 0,00 0,00 5.869,00 0,00 5.869,00 0,00",
+    "600001 Bolha Fashion - priprava kolekcije",
+    "740,03 0,00 0,00 0,00 740,03 0,00 740,03 0,00",
+  ].join("\n")
+
+  const stored = [
+    {
+      code: "600",
+      name: "NEDOKONČANA PROIZVODNJA",
+      amount: 660_903,
+      aop: "",
+      suggested: "",
+      obrazec: "bilanca" as const,
+      saved: false,
+    },
+  ]
+  const rows = accountsForSearch(stored, text)
+  assert.deepEqual(
+    rows.map((row) => row.code),
+    ["600", "600000", "600001"],
+  )
+
+  const hit = filterAccountRows(rows, "600000")
+  assert.equal(hit.length, 1)
+  assert.equal(hit[0]?.code, "600000")
+  assert.equal(hit[0]?.name, "Razvijanje izdelka Guest Copilot")
+  assert.equal(hit[0]?.amount, 586_900)
+  assert.equal(formatCents(hit[0]?.amount ?? 0), "5.869,00")
+
+  const sibling = filterAccountRows(rows, "600001")
+  assert.equal(sibling[0]?.code, "600001")
+  const parent = filterAccountRows(rows, "600").map((row) => row.code)
+  assert.deepEqual(parent, ["600", "600000", "600001"])
+})
+
+test("uvoz PDF obdrži analitična konta 600000 in 600001", async () => {
+  const pdf = await PDFDocument.create()
+  pdf.registerFontkit(fontkit)
+  const font = await pdf.embedFont(await readFile(new URL("./fonts/DejaVuSans.ttf", import.meta.url)))
+  const page = pdf.addPage([595, 842])
+  const lines = [
+    "ADREMA d.o.o.",
+    "Bilanca za obdobje 01.01.2026-31.08.2026",
+    "600 NEDOKONČANA PROIZVODNJA",
+    "6.609,03 0,00 0,00 0,00 6.609,03 0,00 6.609,03 0,00",
+    "600000 Razvijanje izdelka Guest Copilot",
+    "5.869,00 0,00 0,00 0,00 5.869,00 0,00 5.869,00 0,00",
+    "600001 Bolha Fashion - priprava kolekcije",
+    "740,03 0,00 0,00 0,00 740,03 0,00 740,03 0,00",
+    "120 Kupci",
+    "1.000,00 0,00 0,00 0,00 1.000,00 0,00 1.000,00 0,00",
+  ]
+  let y = 800
+  for (const line of lines) {
+    page.drawText(line, { x: 40, y, size: 9, font })
+    y -= 14
+  }
+  const text = await pdfToText(await pdf.save())
+  const rows = accountRows(text)
+  const hit = filterAccountRows(rows, "600000")
+  assert.equal(hit.length, 1)
+  assert.equal(hit[0]?.name, "Razvijanje izdelka Guest Copilot")
+  assert.equal(hit[0]?.amount, 586_900)
+  assert.deepEqual(
+    filterAccountRows(rows, "600").map((row) => row.code),
+    ["600", "600000", "600001"],
+  )
 })
 
 test("konto, ki ni na bilanci, poimenuje razliko 40.822,93", () => {

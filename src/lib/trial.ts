@@ -264,6 +264,21 @@ export function accountRows(text: string, formulas: AccountFormula[] = [], form:
   return [...rows.values()].sort((left, right) => left.code.localeCompare(right.code, "sl", { numeric: true }))
 }
 
+/**
+ * Vrstice za okno »Kam gre konto?«.
+ * Besedilo uvožene bruto bilance je vir: vanj spadajo tudi analitični konti.
+ * Shranjeni seznam iz prejšnjega uvoza, ki jih je zložil v nadrejeni konto, se ne uporabi, če je besedilo tu.
+ */
+export function accountsForSearch(
+  stored: AccountRow[],
+  text: string,
+  formulas: AccountFormula[] = [],
+  form: LegalForm = "doo",
+): AccountRow[] {
+  const fresh = text.trim() ? accountRows(text, formulas, form) : []
+  return fresh.length ? fresh : stored
+}
+
 function accountHasAmount(account: Account): boolean {
   return net(account, "open") !== 0 || net(account, "close") !== 0 || account.turnDebit !== 0 || account.turnCredit !== 0
 }
