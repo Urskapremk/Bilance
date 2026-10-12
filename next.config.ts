@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/bruto-bilanca": ["./public/sources/**", "./node_modules/pdfjs-dist/legacy/build/**"],
     "/api/pdf": ["./src/lib/fonts/**"],
+    "/api/obrazec-dh": ["./data/templates/dh/**"],
+    "/api/obrazec-dh/vloga": ["./data/templates/dh/**"],
   },
 };
 

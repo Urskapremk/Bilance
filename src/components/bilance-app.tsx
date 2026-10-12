@@ -1,6 +1,6 @@
 "use client"
 
-import { Archive, ArrowLeft, FileDown, FileText, FileUp, Printer, Receipt, RefreshCw, Save, UserPlus } from "lucide-react"
+import { Archive, ArrowLeft, FileDown, FileSpreadsheet, FileText, FileUp, Printer, Receipt, RefreshCw, Save, UserPlus } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react"
 
@@ -30,6 +30,7 @@ import {
   type ArchiveMeta,
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
+import { hasDhBankPack } from "@/lib/bank-form"
 import { checkMark, listStoredPeriods, readChecks, readDraft, readLastPlace, readStoredFormulas, readStoredLegalForm, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
@@ -99,7 +100,7 @@ export function BilanceApp() {
   const [cardBusy, setCardBusy] = useState(false)
   const [taxBusy, setTaxBusy] = useState(false)
   const [recalcBusy, setRecalcBusy] = useState(false)
-  const [exporting, setExporting] = useState<"one" | "both" | null>(null)
+  const [exporting, setExporting] = useState<"one" | "both" | "banka" | "vloga" | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
@@ -1084,6 +1085,58 @@ export function BilanceApp() {
     window.print()
   }
 
+  async function downloadBankForm() {
+    setExporting("banka")
+    setError(null)
+    try {
+      const response = await fetch("/api/obrazec-dh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statement }),
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(data?.error ?? "Obrazec za banko ni bil ustvarjen.")
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")
+      link.download = named?.[1] ?? "ADREMA_FRP_EXCEL_DH.xlsx"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Obrazec za banko ni bil ustvarjen.")
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  async function downloadBankApplication() {
+    setExporting("vloga")
+    setError(null)
+    try {
+      const response = await fetch("/api/obrazec-dh/vloga")
+      if (!response.ok) throw new Error("Vloga za financiranje ni pripravljena.")
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "ADREMA_Vloga_za_odobritev_financiranja.pdf"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Vloga za financiranje ni pripravljena.")
+    } finally {
+      setExporting(null)
+    }
+  }
+
   async function createPdf(scope: "one" | "both" = "one") {
     setExporting(scope)
     setError(null)
@@ -1129,6 +1182,9 @@ export function BilanceApp() {
   }
 
   const visibleClients = filterClients(mergeClients([...clients, activeClient]), clientQuery)
+  const bankPack =
+    !blank &&
+    (hasDhBankPack(statement.company) || (hasDhBankPack(activeClient) && sameClient(activeClient, statement.company)))
 
   const toolbar = (
     <div className="no-print mt-8 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1154,6 +1210,18 @@ export function BilanceApp() {
             <Save />
             Shrani
           </Button>
+        ) : null}
+        {bankPack ? (
+          <>
+            <Button type="button" onClick={() => void downloadBankForm()} disabled={exporting !== null || blank}>
+              <FileSpreadsheet />
+              {exporting === "banka" ? "Pripravljam obrazec…" : "Obrazec za banko"}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void downloadBankApplication()} disabled={exporting !== null}>
+              <FileDown />
+              {exporting === "vloga" ? "Pripravljam vlogo…" : "Vloga za financiranje"}
+            </Button>
+          </>
         ) : null}
         <Button type="button" variant="outline" onClick={printStatement}>
           <Printer />
@@ -1397,6 +1465,23 @@ export function BilanceApp() {
                 <Archive />
                 Arhiv{archiveItems.length > 0 ? ` (${archiveItems.length})` : ""}
               </Button>
+              {bankPack ? (
+                <>
+                  <Button type="button" onClick={() => void downloadBankForm()} disabled={exporting !== null || busy}>
+                    <FileSpreadsheet />
+                    {exporting === "banka" ? "Pripravljam obrazec…" : "Obrazec za banko"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void downloadBankApplication()}
+                    disabled={exporting !== null || busy}
+                  >
+                    <FileDown />
+                    {exporting === "vloga" ? "Pripravljam vlogo…" : "Vloga za financiranje"}
+                  </Button>
+                </>
+              ) : null}
               {konti.length > 0 ? (
                 <Button
                   type="button"
