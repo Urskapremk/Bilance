@@ -259,12 +259,28 @@ export function adremaBankCells(statement: BankStatement): BankCell[] {
   })
 }
 
-export function dhWorkbookName(currentDate: string): string {
-  const date = civilDate(currentDate)
-  const stamp = date
-    ? `_${String(date.day).padStart(2, "0")}.${String(date.month).padStart(2, "0")}.${date.year}`
-    : ""
-  return `ADREMA_FRP_EXCEL_DH${stamp}.xlsx`
+/** Oznaka obdobja za ime datoteke, npr. 01.01.2026-31.07.2026. */
+export function statementFileStamp(period: string, currentDate: string): string {
+  const parts = splitPeriod(period)
+  const start = parts ? civilDate(parts.start) : null
+  const end = parts ? civilDate(parts.end) : civilDate(currentDate)
+  const stamp = (date: CivilDate) =>
+    `${String(date.day).padStart(2, "0")}.${String(date.month).padStart(2, "0")}.${date.year}`
+  if (start && end) return `${stamp(start)}-${stamp(end)}`
+  if (end) return stamp(end)
+  return ""
+}
+
+export function dhWorkbookName(period: string, currentDate: string): string {
+  const stamp = statementFileStamp(period, currentDate)
+  return stamp ? `ADREMA_FRP_EXCEL_DH_${stamp}.xlsx` : "ADREMA_FRP_EXCEL_DH.xlsx"
+}
+
+export function dhApplicationName(period: string, currentDate: string): string {
+  const stamp = statementFileStamp(period, currentDate)
+  return stamp
+    ? `ADREMA_Vloga_za_odobritev_financiranja_${stamp}.pdf`
+    : "ADREMA_Vloga_za_odobritev_financiranja.pdf"
 }
 
 /**

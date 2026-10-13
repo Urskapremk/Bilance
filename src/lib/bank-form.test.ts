@@ -7,6 +7,8 @@ import { fillDhWorkbook } from "./bank-xlsx.ts"
 import {
   adremaBankCells,
   bankFormCells,
+  dhApplicationName,
+  dhWorkbookName,
   excelSerial,
   findBankCell,
   hasDhBankPack,
@@ -102,6 +104,34 @@ test("novi obrazec vzame tekoči stolpec iz bilance in lanski iz obrazca 31. 7. 
   assert.equal(findBankCell(cells, "Osnovni podatki", "D11")?.text, "85127035")
   assert.equal(hasDhBankPack("ADREMA d.o.o."), true)
   assert.equal(hasDhBankPack("GRAFAM d.o.o."), false)
+})
+
+test("tekoči zneski odprte bilance gredo v tekoči stolpec, lanski v prejšnjega", async () => {
+  const period = "1. 1. 2026–31. 7. 2026"
+  const cells = adremaBankCells({
+    company: "ADREMA d.o.o.",
+    period,
+    currentDate: "31. 7. 2026",
+    legalForm: "doo",
+    balance: { current: { "014": 123456, "050": 100 }, previous: { "014": 1 } },
+    income: { "112": 999999 },
+  })
+  assert.equal(dhWorkbookName(period, "31. 7. 2026"), "ADREMA_FRP_EXCEL_DH_01.01.2026-31.07.2026.xlsx")
+  assert.equal(dhApplicationName(period, "31. 7. 2026"), "ADREMA_Vloga_za_odobritev_financiranja_01.01.2026-31.07.2026.pdf")
+  const template = await readFile(path.join(process.cwd(), "data/templates/dh/FRP_EXCEL_DH.xlsx"))
+  const filled = await fillDhWorkbook(template, cells)
+  const zip = await import("jszip").then((mod) => mod.default.loadAsync(filled))
+  const bs = await zip.file("xl/worksheets/sheet4.xml")!.async("string")
+  const ipi = await zip.file("xl/worksheets/sheet5.xml")!.async("string")
+  const osnovni = await zip.file("xl/worksheets/sheet2.xml")!.async("string")
+  assert.match(bs, /<c r="G22"[^>]*><v>1234\.56<\/v><\/c>/)
+  assert.match(bs, /<c r="H22"[^>]*><v>2860\.43<\/v><\/c>/)
+  assert.doesNotMatch(bs, /<c r="H22"[^>]*><v>0\.01<\/v><\/c>/)
+  assert.match(ipi, /<c r="G11"[^>]*><v>9999\.99<\/v><\/c>/)
+  assert.match(ipi, /<c r="H11"[^>]*><v>69436\.59<\/v><\/c>/)
+  assert.match(osnovni, /ADREMA D\.O\.O\./)
+  assert.match(osnovni, /HNATURA D\.O\.O\./)
+  assert.match(osnovni, /85127035/)
 })
 
 test("izpolnjena predloga ohrani formule in vpiše znane zneske", async () => {

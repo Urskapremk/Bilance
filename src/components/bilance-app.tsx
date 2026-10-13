@@ -30,7 +30,7 @@ import {
   type ArchiveMeta,
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
-import { hasDhBankPack } from "@/lib/bank-form"
+import { dhApplicationName, dhWorkbookName, hasDhBankPack } from "@/lib/bank-form"
 import { checkMark, listStoredPeriods, readChecks, readDraft, readLastPlace, readStoredFormulas, readStoredLegalForm, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
@@ -1085,14 +1085,29 @@ export function BilanceApp() {
     window.print()
   }
 
+  function openAdremaStatement() {
+    const current = statementRef.current
+    return (
+      !blank &&
+      hasDhBankPack(activeClient) &&
+      hasDhBankPack(current.company) &&
+      sameClient(activeClient, current.company)
+    )
+  }
+
   async function downloadBankForm() {
+    if (!openAdremaStatement()) {
+      setError("Najprej odprite bilanco Adreme.")
+      return
+    }
+    const current = statementRef.current
     setExporting("banka")
     setError(null)
     try {
       const response = await fetch("/api/obrazec-dh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ statement }),
+        body: JSON.stringify({ statement: current }),
       })
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null
@@ -1103,7 +1118,7 @@ export function BilanceApp() {
       const link = document.createElement("a")
       link.href = url
       const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")
-      link.download = named?.[1] ?? "ADREMA_FRP_EXCEL_DH.xlsx"
+      link.download = named?.[1] ?? dhWorkbookName(current.period, current.currentDate)
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -1116,22 +1131,35 @@ export function BilanceApp() {
   }
 
   async function downloadBankApplication() {
+    if (!openAdremaStatement()) {
+      setError("Najprej odprite bilanco Adreme.")
+      return
+    }
+    const current = statementRef.current
     setExporting("vloga")
     setError(null)
     try {
-      const response = await fetch("/api/obrazec-dh/vloga")
-      if (!response.ok) throw new Error("Vloga za financiranje ni pripravljena.")
+      const response = await fetch("/api/obrazec-dh/vloga", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statement: current }),
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(data?.error ?? "Vloga za financiranje ni bila ustvarjena.")
+      }
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
-      link.download = "ADREMA_Vloga_za_odobritev_financiranja.pdf"
+      const named = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") ?? "")
+      link.download = named?.[1] ?? dhApplicationName(current.period, current.currentDate)
       document.body.appendChild(link)
       link.click()
       link.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Vloga za financiranje ni pripravljena.")
+      setError(caught instanceof Error ? caught.message : "Vloga za financiranje ni bila ustvarjena.")
     } finally {
       setExporting(null)
     }
@@ -1182,9 +1210,9 @@ export function BilanceApp() {
   }
 
   const visibleClients = filterClients(mergeClients([...clients, activeClient]), clientQuery)
-  const bankPack =
-    !blank &&
-    (hasDhBankPack(statement.company) || (hasDhBankPack(activeClient) && sameClient(activeClient, statement.company)))
+  const adremaClient = hasDhBankPack(activeClient)
+  const adremaReady =
+    adremaClient && !blank && hasDhBankPack(statement.company) && sameClient(activeClient, statement.company)
 
   const toolbar = (
     <div className="no-print mt-8 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1211,9 +1239,9 @@ export function BilanceApp() {
             Shrani
           </Button>
         ) : null}
-        {bankPack ? (
+        {adremaReady ? (
           <>
-            <Button type="button" onClick={() => void downloadBankForm()} disabled={exporting !== null || blank}>
+            <Button type="button" onClick={() => void downloadBankForm()} disabled={exporting !== null}>
               <FileSpreadsheet />
               {exporting === "banka" ? "Pripravljam obrazec…" : "Obrazec za banko"}
             </Button>
@@ -1465,7 +1493,7 @@ export function BilanceApp() {
                 <Archive />
                 Arhiv{archiveItems.length > 0 ? ` (${archiveItems.length})` : ""}
               </Button>
-              {bankPack ? (
+              {adremaClient ? (
                 <>
                   <Button type="button" onClick={() => void downloadBankForm()} disabled={exporting !== null || busy}>
                     <FileSpreadsheet />
@@ -1480,6 +1508,9 @@ export function BilanceApp() {
                     <FileDown />
                     {exporting === "vloga" ? "Pripravljam vlogo…" : "Vloga za financiranje"}
                   </Button>
+                  {adremaReady ? null : (
+                    <p className="basis-full text-sm text-muted-foreground">Najprej odprite bilanco Adreme.</p>
+                  )}
                 </>
               ) : null}
               {konti.length > 0 ? (

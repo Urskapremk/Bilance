@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   try {
     const template = await readFile(TEMPLATE)
     const workbook = await fillDhWorkbook(template, adremaBankCells(statement))
-    const filename = dhWorkbookName(statement.currentDate ?? "")
+    const filename = dhWorkbookName(statement.period ?? "", statement.currentDate ?? "")
     return new Response(new Uint8Array(workbook), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
