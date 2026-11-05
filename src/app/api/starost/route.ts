@@ -1,7 +1,9 @@
+import { withOcrDeadline } from "@/lib/ocr-engine"
 import { AgingTableError } from "@/lib/partner-aging"
 import { parseAgingImage } from "@/lib/partner-aging-image"
 
 export const runtime = "nodejs"
+export const maxDuration = 20
 
 const IMAGE = new Set(["image/png", "image/jpeg", "image/webp"])
 
@@ -25,11 +27,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const rows = await parseAgingImage(new Uint8Array(await file.arrayBuffer()), kind)
+    const rows = await withOcrDeadline(parseAgingImage(new Uint8Array(await file.arrayBuffer()), kind))
     return Response.json({ rows })
   } catch (error) {
     const message =
-      error instanceof AgingTableError ? error.message : "Tabele na sliki ni bilo mogoče prebrati."
+      error instanceof AgingTableError || (error instanceof Error && /končalo|poskusite/i.test(error.message))
+        ? error.message
+        : "Tabele na sliki ni bilo mogoče prebrati."
     return Response.json({ error: message }, { status: 422 })
   }
 }

@@ -1487,12 +1487,23 @@ export function BilanceApp() {
     }
   }
 
+  async function postScreenshot(url: string, body: FormData): Promise<Response> {
+    try {
+      return await fetch(url, { method: "POST", body, signal: AbortSignal.timeout(20_000) })
+    } catch (caught) {
+      if (caught instanceof Error && (caught.name === "TimeoutError" || caught.name === "AbortError")) {
+        throw new Error("Branje se ni končalo. Poskusite znova.")
+      }
+      throw new Error("Posnetka ni bilo mogoče prebrati.")
+    }
+  }
+
   async function readAgingFile(file: File, kind: AgingKind) {
     if (!isAgingImage(file)) throw new Error("Prilepite posnetek zaslona (png, jpg ali webp).")
     const body = new FormData()
     body.set("file", file)
     body.set("kind", kind)
-    const response = await fetch("/api/starost", { method: "POST", body })
+    const response = await postScreenshot("/api/starost", body)
     const data = (await response.json().catch(() => null)) as { rows?: AgingParty[]; error?: string } | null
     if (!response.ok || !data?.rows?.length) {
       throw new Error(data?.error ?? "Tabele na sliki ni bilo mogoče prebrati.")
@@ -1627,7 +1638,7 @@ export function BilanceApp() {
     try {
       const body = new FormData()
       body.set("file", image)
-      const response = await fetch("/api/zavihek-045", { method: "POST", body })
+      const response = await postScreenshot("/api/zavihek-045", body)
       const data = (await response.json().catch(() => null)) as { lines?: LoanAnalyticalLine[]; error?: string } | null
       if (!response.ok || !data?.lines?.length) {
         throw new Error(data?.error ?? "Na posnetku ni analitičnih vrstic.")

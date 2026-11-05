@@ -1,8 +1,4 @@
-import os from "node:os"
-import path from "node:path"
-
 import sharp from "sharp"
-import { createWorker, PSM, type Worker } from "tesseract.js"
 
 import {
   AgingTableError,
@@ -11,6 +7,7 @@ import {
   type AgingKind,
   type AgingParty,
 } from "@/lib/partner-aging"
+import { finishOcr, LINES_ONLY, PSM, recognizeImage, TEXT_ONLY } from "@/lib/ocr-engine"
 
 export type OcrWord = {
   text: string
@@ -30,8 +27,6 @@ type HeaderCell = {
 const MONEY = new Set(["terjatve", "stanje", "nezapadlo", "zapadlo", "do30", "d60", "d90", "d150", "nad150", "nerazporejeno"])
 
 let chain: Promise<unknown> = Promise.resolve()
-let workerPromise: Promise<Worker> | null = null
-let digitWorkerPromise: Promise<Worker> | null = null
 
 /** Besede s položajem sestavi v mrežo, ki jo bere isti razčlenjevalec kot Excel. */
 export function ocrWordsToGrid(words: OcrWord[]): string[][] {
@@ -474,21 +469,17 @@ function amountCents(raw: string): number | null {
 
 async function recognizeCell(image: Buffer, whitelist: string): Promise<string> {
   const run = chain.then(async () => {
-    const engine = whitelist ? await digitWorker() : await ocrWorker()
-    if (whitelist) {
-      await engine.setParameters({
+    const page = await recognizeImage(
+      image,
+      {
         tessedit_pageseg_mode: PSM.SINGLE_LINE,
         tessedit_char_whitelist: whitelist,
         user_defined_dpi: "300",
-      })
-    } else {
-      await engine.setParameters({
-        tessedit_pageseg_mode: PSM.SINGLE_LINE,
-        user_defined_dpi: "300",
-      })
-    }
-    const result = await engine.recognize(image)
-    return result.data.text.replace(/\s+/g, " ").trim()
+      },
+      TEXT_ONLY,
+      whitelist ? "eng" : "slv+eng",
+    )
+    return (page.text ?? "").replace(/\s+/g, " ").trim()
   })
   chain = run.then(
     () => undefined,
@@ -507,37 +498,34 @@ async function recognizeLines(data: Uint8Array): Promise<OcrWord[][]> {
 }
 
 async function readLines(data: Uint8Array): Promise<OcrWord[][]> {
-  const engine = await ocrWorker()
-  await engine.setParameters({
-    tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
-    user_defined_dpi: "200",
-  })
   const prepared = await prepareScreenshot(data)
-  const result = await engine.recognize(prepared)
-  const fromLines = (result.data.lines ?? [])
+  const result = await recognizeImage(
+    prepared,
+    {
+      tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+      tessedit_char_whitelist: "",
+      user_defined_dpi: "200",
+    },
+    LINES_ONLY,
+  )
+  const fromLines = (result.lines ?? [])
     .map((line) =>
-      line.words
-        .filter((word) => word.text.trim())
-        .map((word) => ({
-          text: word.text,
-          x0: word.bbox.x0,
-          y0: word.bbox.y0,
-          x1: word.bbox.x1,
-          y1: word.bbox.y1,
-        })),
+      (line.words ?? [])
+        .map((word) => placedWord(word))
+        .filter((word): word is OcrWord => word !== null),
     )
     .filter((line) => line.length > 0)
   if (fromLines.length) return fromLines
-  const words = (result.data.words ?? [])
-    .filter((word) => word.text.trim())
-    .map((word) => ({
-      text: word.text,
-      x0: word.bbox.x0,
-      y0: word.bbox.y0,
-      x1: word.bbox.x1,
-      y1: word.bbox.y1,
-    }))
+  const words = (result.words ?? [])
+    .map((word) => placedWord(word))
+    .filter((word): word is OcrWord => word !== null)
   return groupLines(words)
+}
+
+function placedWord(word: { text: string | null; bbox?: { x0: number; y0: number; x1: number; y1: number } }): OcrWord | null {
+  const text = word.text?.trim() ?? ""
+  if (!text || !word.bbox) return null
+  return { text, x0: word.bbox.x0, y0: word.bbox.y0, x1: word.bbox.x1, y1: word.bbox.y1 }
 }
 
 /** Sive črte mreže in črne obrobe ne smejo prekriti besedila. Barvna polja ostanejo prazna. */
@@ -630,50 +618,6 @@ function inkPixel(raw: Buffer, offset: number): boolean {
 }
 
 export async function finishAgingOcr(): Promise<void> {
-  const pending = [workerPromise, digitWorkerPromise]
-  workerPromise = null
-  digitWorkerPromise = null
   chain = Promise.resolve()
-  for (const worker of pending) {
-    const engine = await worker?.catch(() => null)
-    await engine?.terminate()
-  }
-}
-
-function digitWorker(): Promise<Worker> {
-  if (!digitWorkerPromise) {
-    const pending = createWorker("eng", 1, {
-      langPath: path.join(process.cwd(), "data/tessdata"),
-      cachePath: path.join(os.tmpdir(), "bilance-tess"),
-      gzip: false,
-    }).catch((error: unknown) => {
-      digitWorkerPromise = null
-      throw error
-    })
-    digitWorkerPromise = pending
-  }
-  return digitWorkerPromise
-}
-
-function ocrWorker(): Promise<Worker> {
-  if (!workerPromise) {
-    const pending = createWorker("slv+eng", 1, {
-      langPath: path.join(process.cwd(), "data/tessdata"),
-      cachePath: path.join(os.tmpdir(), "bilance-tess"),
-      gzip: false,
-    })
-      .then(async (created) => {
-        await created.setParameters({
-          tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
-          preserve_interword_spaces: "1",
-        })
-        return created
-      })
-      .catch((error: unknown) => {
-        workerPromise = null
-        throw error
-      })
-    workerPromise = pending
-  }
-  return workerPromise
+  await finishOcr()
 }
