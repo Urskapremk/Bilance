@@ -1816,7 +1816,7 @@ export function BilanceApp() {
           disabled={exporting !== null || blank || sheet076Busy}
         >
           <FileUp />
-          {sheet076Busy ? "Berem dolgoročne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
+          {sheet076Busy ? "Berem dolgoročne finančne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
         </Button>
         <Button
           type="button"
@@ -1828,7 +1828,7 @@ export function BilanceApp() {
           disabled={exporting !== null || blank || sheet045Busy}
         >
           <FileUp />
-          {sheet045Busy ? "Berem kratkoročna posojila…" : "Naloži kratkoročna dana posojila"}
+          {sheet045Busy ? "Berem kratkoročna dana posojila…" : "Naloži kratkoročna dana posojila"}
         </Button>
         {adremaReady ? (
           <>
@@ -2202,7 +2202,7 @@ export function BilanceApp() {
                     disabled={exporting !== null || busy || ajpesBusy || blank || sheet076Busy}
                   >
                     <FileUp />
-                    {sheet076Busy ? "Berem dolgoročne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
+                    {sheet076Busy ? "Berem dolgoročne finančne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
                   </Button>
                   <Button
                     type="button"
@@ -2214,7 +2214,7 @@ export function BilanceApp() {
                     disabled={exporting !== null || busy || ajpesBusy || blank || sheet045Busy}
                   >
                     <FileUp />
-                    {sheet045Busy ? "Berem kratkoročna posojila…" : "Naloži kratkoročna dana posojila"}
+                    {sheet045Busy ? "Berem kratkoročna dana posojila…" : "Naloži kratkoročna dana posojila"}
                   </Button>
                   <Button
                     type="button"
@@ -2320,7 +2320,7 @@ export function BilanceApp() {
                         }}
                       >
                         Sem prilepite posnetek zaslona kupcev (Ctrl+V) ali ga spustite sem. Lahko ga tudi izberete z
-                        Naloži kupce. Razkritja vpiše vrstice na zavihek 050, kratkoročne terjatve do kupcev.
+                        Naloži kupce. Razkritja vpiše vrstice med kratkoročne terjatve do kupcev.
                       </div>
                       <div
                         data-dobavitelji-paste=""
@@ -2353,7 +2353,7 @@ export function BilanceApp() {
                         }}
                       >
                         Sem prilepite posnetek zaslona dobaviteljev (Ctrl+V) ali ga spustite sem. Lahko ga tudi
-                        izberete z Naloži dobavitelje. Razkritja vpiše vrstice na zavihek 093.
+                        izberete z Naloži dobavitelje. Razkritja vpiše vrstice med dobavitelje.
                       </div>
                       <div
                         data-obveznosti-paste=""
@@ -2374,7 +2374,8 @@ export function BilanceApp() {
                         }}
                       >
                         Sem prilepite posnetek dolgoročnih finančnih obveznosti (Ctrl+V, png, jpg ali webp) ali ga
-                        spustite sem. Lahko ga tudi izberete z gumbom. Razkritja vpiše vrstice na zavihek 076.
+                        spustite sem. Lahko ga tudi izberete z gumbom Naloži dolgoročne finančne obveznosti. Razkritja
+                        vpiše vrstice med dolgoročne finančne obveznosti.
                       </div>
                       <div
                         data-posojila-paste=""
@@ -2395,22 +2396,23 @@ export function BilanceApp() {
                         }}
                       >
                         Sem prilepite posnetek kratkoročnih danih posojil (Ctrl+V, png, jpg ali webp) ali ga spustite
-                        sem. Lahko ga tudi izberete z gumbom. Razkritja vpiše vrstice na zavihek 045.
+                        sem. Lahko ga tudi izberete z gumbom Naloži kratkoročna dana posojila. Razkritja vpiše vrstice
+                        med kratkoročna dana posojila.
                       </div>
                       <p className="mt-2">
                         Razkritja se napolnijo iz odprte bilance {statement.period}. Kupci se dodajo kot posnetek
-                        zaslona v prvo polje in gredo na zavihek 050. Posnetek zaslona dobaviteljev gre na zavihek
-                        093. Dolgoročne finančne obveznosti gredo na zavihek 076, kratkoročna dana posojila na
-                        zavihek 045. Vrstice ostanejo pri tej stranki za to obdobje in se vpišejo v datoteko banke.
+                        zaslona v prvo polje, med kratkoročne terjatve do kupcev. Posnetek zaslona dobaviteljev gre
+                        med dobavitelje. Dolgoročne finančne obveznosti in kratkoročna dana posojila se vpišejo
+                        posebej. Vrstice ostanejo pri tej stranki za to obdobje in se vpišejo v datoteko banke.
                       </p>
                       {loans076?.length ? (
                         <p className="mt-1 text-navy">
-                          Zavihek 076: {loans076.length} analitičnih vrstic za to obdobje.
+                          Dolgoročne finančne obveznosti: {loans076.length} analitičnih vrstic za to obdobje.
                         </p>
                       ) : null}
                       {loans045?.length ? (
                         <p className="mt-1 text-navy">
-                          Zavihek 045: {loans045.length} analitičnih vrstic za to obdobje.
+                          Kratkoročna dana posojila: {loans045.length} analitičnih vrstic za to obdobje.
                         </p>
                       ) : null}
                       {agingNote("kupci", kupci) ? <p className="mt-1 text-navy">{agingNote("kupci", kupci)}</p> : null}
