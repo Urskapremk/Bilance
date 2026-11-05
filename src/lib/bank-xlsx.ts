@@ -32,7 +32,11 @@ const SHEET_FILE: Record<string, string> = {
 }
 
 /** Vpiše vrednosti v kopijo predloge in pusti formule, sloge in imena celic. */
-export async function fillDhWorkbook(template: Uint8Array, cells: BankCell[]): Promise<Buffer> {
+export async function fillDhWorkbook(
+  template: Uint8Array,
+  cells: BankCell[],
+  options?: { dropStaleText?: boolean },
+): Promise<Buffer> {
   const zip = await JSZip.loadAsync(template)
   const bySheet = new Map<string, BankCell[]>()
   for (const cell of cells) {
@@ -48,6 +52,15 @@ export async function fillDhWorkbook(template: Uint8Array, cells: BankCell[]): P
     if (!file) throw new Error(`V predlogi manjka ${path}.`)
     const xml = await file.async("string")
     zip.file(path, patchSheetXml(xml, writes, sheet))
+  }
+
+  if (options?.dropStaleText) {
+    const names = Object.keys(zip.files).filter((name) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
+    for (const name of names) {
+      const file = zip.file(name)
+      if (!file) continue
+      zip.file(name, forgetFormulaCache(await file.async("string")))
+    }
   }
 
   const workbook = zip.file("xl/workbook.xml")
@@ -75,16 +88,26 @@ export function euroText(cents: number): string {
 export function patchSheetXml(xml: string, writes: BankCell[], sheet: string): string {
   let next = xml
   for (const write of writes) {
-    const inner = cellInner(write)
-    const extra = write.text ? ' t="inlineStr"' : ""
     const replaced = replaceCell(next, write.cell, (attrs) => {
       const cleaned = attrs.replace(/\s+t="[^"]*"/g, "")
-      return `<c r="${write.cell}"${cleaned}${extra}>${inner}</c>`
+      if (write.clear) return `<c r="${write.cell}"${cleaned}/>`
+      const extra = write.text ? ' t="inlineStr"' : ""
+      return `<c r="${write.cell}"${cleaned}${extra}>${cellInner(write)}</c>`
     })
     if (replaced === null) throw new Error(`Na listu ${sheet} ni celice ${write.cell}.`)
     next = replaced
   }
   return next
+}
+
+/** Vzorčni izpis formul v predlogi ne sme ostati, ko se vhodne celice zamenjajo. */
+function forgetFormulaCache(xml: string): string {
+  return xml.replace(/<c\b([^>]*)>([\s\S]*?)<\/c>/g, (full, attrs: string, inner: string) => {
+    if (!/<f[\s>]/.test(inner) || !/<v>/.test(inner)) return full
+    const cleanedAttrs = attrs.replace(/\s+\bt="(?:str|s)"/, "")
+    const cleanedInner = inner.replace(/<v>[\s\S]*?<\/v>/g, "")
+    return `<c${cleanedAttrs}>${cleanedInner}</c>`
+  })
 }
 
 function cellInner(write: BankCell): string {

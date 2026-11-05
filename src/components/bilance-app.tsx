@@ -31,6 +31,7 @@ import {
 } from "@/lib/archive"
 import { attachPublicFiling } from "@/lib/ajpes-public"
 import { dhApplicationName, dhWorkbookName, hasDhBankPack } from "@/lib/bank-form"
+import { DISCLOSURE_BANKS, disclosureWorkbookName, type DisclosureBankId } from "@/lib/razkritja"
 import { checkMark, listStoredPeriods, readChecks, readDraft, readLastPlace, readStoredFormulas, readStoredLegalForm, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
@@ -100,7 +101,8 @@ export function BilanceApp() {
   const [cardBusy, setCardBusy] = useState(false)
   const [taxBusy, setTaxBusy] = useState(false)
   const [recalcBusy, setRecalcBusy] = useState(false)
-  const [exporting, setExporting] = useState<"one" | "both" | "banka" | "vloga" | null>(null)
+  const [exporting, setExporting] = useState<"one" | "both" | "banka" | "vloga" | "razkritja" | null>(null)
+  const [disclosureBank, setDisclosureBank] = useState<DisclosureBankId>("dh")
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
@@ -1130,6 +1132,54 @@ export function BilanceApp() {
     }
   }
 
+  async function downloadDisclosures() {
+    if (blank) {
+      setError("Najprej odprite bilanco.")
+      return
+    }
+    const current = statementRef.current
+    if (!current.company || !current.balance?.current) {
+      setError("Najprej odprite bilanco.")
+      return
+    }
+    setExporting("razkritja")
+    setError(null)
+    try {
+      const response = await fetch("/api/razkritja", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bank: disclosureBank, statement: current }),
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        throw new Error(data?.error ?? "Razkritja niso bila ustvarjena.")
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      const header = response.headers.get("Content-Disposition") ?? ""
+      const starred = /filename\*=UTF-8''([^;]+)/i.exec(header)
+      let filename = disclosureWorkbookName(current.company, current.period, current.currentDate)
+      if (starred?.[1]) {
+        try {
+          filename = decodeURIComponent(starred[1])
+        } catch {
+          /* ostane ime iz bilance */
+        }
+      }
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Razkritja niso bila ustvarjena.")
+    } finally {
+      setExporting(null)
+    }
+  }
+
   async function downloadBankApplication() {
     if (!openAdremaStatement()) {
       setError("Najprej odprite bilanco Adreme.")
@@ -1239,6 +1289,10 @@ export function BilanceApp() {
             Shrani
           </Button>
         ) : null}
+        <Button type="button" onClick={() => void downloadDisclosures()} disabled={exporting !== null || blank}>
+          <FileSpreadsheet />
+          {exporting === "razkritja" ? "Pripravljam razkritja…" : "Razkritja"}
+        </Button>
         {adremaReady ? (
           <>
             <Button type="button" onClick={() => void downloadBankForm()} disabled={exporting !== null}>
@@ -1493,6 +1547,37 @@ export function BilanceApp() {
                 <Archive />
                 Arhiv{archiveItems.length > 0 ? ` (${archiveItems.length})` : ""}
               </Button>
+              <div className="basis-full min-w-0 rounded-lg border border-border p-3">
+                <fieldset>
+                  <legend className="text-xs font-medium tracking-[0.2em] text-gold uppercase">Banka</legend>
+                  <div className="mt-2 space-y-1">
+                    {DISCLOSURE_BANKS.map((bank) => (
+                      <label key={bank.id} className="flex items-center gap-2 text-sm text-navy">
+                        <input
+                          type="radio"
+                          name="banka-razkritij"
+                          className="size-4 shrink-0"
+                          value={bank.id}
+                          checked={disclosureBank === bank.id}
+                          onChange={() => setDisclosureBank(bank.id)}
+                        />
+                        <span className="min-w-0 break-words">{bank.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => void downloadDisclosures()}
+                    disabled={exporting !== null || busy || blank}
+                  >
+                    <FileSpreadsheet />
+                    {exporting === "razkritja" ? "Pripravljam razkritja…" : "Razkritja"}
+                  </Button>
+                  {blank ? <p className="text-sm text-muted-foreground">Najprej odprite bilanco.</p> : null}
+                </div>
+              </div>
               {adremaClient ? (
                 <>
                   <Button type="button" onClick={() => void downloadBankForm()} disabled={exporting !== null || busy}>

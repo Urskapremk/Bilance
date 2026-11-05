@@ -1,7 +1,7 @@
 import { clientKey } from "@/lib/clients"
 import { parseSloveneDate, splitPeriod } from "@/lib/format"
 import { rollupIncome } from "@/lib/income"
-import { legalFormOf, type LegalForm } from "@/lib/legal-form"
+import { inferLegalForm, legalFormOf, parseLegalForm, type LegalForm } from "@/lib/legal-form"
 import {
   ADREMA_31_07_2025_TEKOCE,
   ADREMA_DH_COMPANY,
@@ -19,6 +19,8 @@ export type BankCell = {
   /** Število, ki ni znesek: datumski serijski zapis, velikost, meseci, zaposleni. */
   number?: number
   text?: string
+  /** Izprazni celico, da v predlogi ne ostane tuj podatek. */
+  clear?: boolean
 }
 
 export type BankStatement = {
@@ -281,6 +283,79 @@ export function dhApplicationName(period: string, currentDate: string): string {
   return stamp
     ? `ADREMA_Vloga_za_odobritev_financiranja_${stamp}.pdf`
     : "ADREMA_Vloga_za_odobritev_financiranja.pdf"
+}
+
+/** Vzorčni podatki v predlogi razkritij. Če jih ne zamenjamo, jih zbrišemo. */
+const SAMPLE_COMPANY_CELLS = ["D8", "D9", "D10", "D11", "D12", "D13", "D14", "D15", "D18", "D19", "D20", "D21", "D28"]
+
+const EMPTY_COMPANY: DhCompany = {
+  name: "",
+  seat: "",
+  registration: "",
+  taxNumber: "",
+  director: "",
+  kind: "",
+  size: 0,
+  accounting: 0,
+  place: "",
+  accountant: "",
+  contact: "",
+  phone: "",
+  email: "",
+}
+
+/**
+ * Razkritja za katero koli stranko.
+ * Tekoči stolpec je odprta bilanca, prejšnji je primerjalni stolpec, kadar ima zneske.
+ * Podatki o firmi se vpišejo samo, če jih stranka ima. Ostale celice ostanejo prazne.
+ */
+export function disclosureCells(
+  statement: BankStatement & { registration?: string; previousIncome?: Record<string, number> },
+): BankCell[] {
+  const period = splitPeriod(statement.period || "")
+  const start = period ? civilDate(period.start) : null
+  const end = period ? civilDate(period.end) : civilDate(statement.currentDate || "")
+  const reportedAt = civilDate(statement.currentDate || "") ?? end ?? undefined
+  const form = legalFormOf(statement)
+  const writes: BankCell[] = []
+  text(writes, SHEET.osnovni, "D8", statement.company.trim())
+  text(writes, SHEET.osnovni, "D10", statement.registration?.trim() ?? "")
+  text(writes, SHEET.osnovni, "D13", disclosureKind(statement))
+  if (start) writes.push({ sheet: SHEET.osnovni, cell: "D18", number: excelSerial(start) })
+  if (end) writes.push({ sheet: SHEET.osnovni, cell: "D19", number: excelSerial(end) })
+  if (reportedAt) writes.push({ sheet: SHEET.osnovni, cell: "D20", number: excelSerial(reportedAt) })
+  writeStatement(writes, SHEET.bs, BS_ROW, "G", statement.balance.current)
+  writeStatement(writes, SHEET.bs, BS_ROW, "H", statement.balance.previous)
+  writeStatement(writes, SHEET.ipi, IPI_ROW, "G", statement.income)
+  if (statement.previousIncome) writeStatement(writes, SHEET.ipi, IPI_ROW, "H", statement.previousIncome)
+  if (start && end) writes.push({ sheet: SHEET.ipi, cell: "G90", number: operatingMonths(start, end) })
+  writeDisclosures(
+    writes,
+    {
+      company: EMPTY_COMPANY,
+      currentBalance: statement.balance.current,
+      currentIncome: statement.income,
+      previousBalance: statement.balance.previous,
+      previousIncome: statement.previousIncome ?? {},
+      legalForm: form,
+    },
+    form,
+  )
+  const filled = new Set(writes.filter((item) => item.sheet === SHEET.osnovni).map((item) => item.cell))
+  const clears: BankCell[] = SAMPLE_COMPANY_CELLS.filter((cell) => !filled.has(cell)).map((cell) => ({
+    sheet: SHEET.osnovni,
+    cell,
+    clear: true,
+  }))
+  return [...clears, ...writes]
+}
+
+/** Šifra vrste samo, kadar jo iz stranke res poznamo. Privzeti d.o.o. se ne vpiše. */
+function disclosureKind(statement: { legalForm?: string | null; company?: string }): string {
+  const form = parseLegalForm(statement.legalForm) ?? inferLegalForm(statement.company ?? "")
+  if (form === "doo") return "GD"
+  if (form === "sp") return "SP"
+  return ""
 }
 
 /**
