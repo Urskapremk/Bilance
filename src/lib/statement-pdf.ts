@@ -5,11 +5,11 @@ import fontkit from "@pdf-lib/fontkit"
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib"
 
 import { chart, descendantLeaves } from "@/lib/charts"
-import { rollup } from "@/lib/compute"
 import { formatCents } from "@/lib/format"
-import { incomeLines, rollupIncome } from "@/lib/income"
+import { incomeLines } from "@/lib/income"
 import { legalFormOf } from "@/lib/legal-form"
 import type { PrintJob } from "@/lib/print-job"
+import { rowHasAmount, shownColumns, type ShownColumns } from "@/lib/prior-year"
 import { signatoryById } from "@/lib/signatories"
 import { statementSubtitle } from "@/lib/subtitle"
 
@@ -29,6 +29,7 @@ type PdfRow = {
   label: string
   aop: string
   amount: string
+  prior?: string
   depth: number
   band: boolean
 }
@@ -46,6 +47,7 @@ export async function renderStatementPdf(job: PrintJob): Promise<Uint8Array> {
 export async function renderBothStatementsPdf(input: {
   statement: PrintJob["statement"]
   showZeros: boolean
+  showPrevious?: boolean
 }): Promise<Uint8Array> {
   const ready = await preparePdf()
   ready.pdf.setTitle(`Bilanca stanja in izkaz poslovnega izida, ${input.statement.company}`)
@@ -66,18 +68,25 @@ async function preparePdf() {
 }
 
 function appendStatement(pdf: PDFDocument, font: PDFFont, fontBold: PDFFont, job: PrintJob) {
-  const rows = job.view === "bilanca" ? balanceRows(job) : incomeRows(job)
+  const columns = shownColumns(job.statement, Boolean(job.showPrevious))
+  const rows = job.view === "bilanca" ? balanceRows(job, columns) : incomeRows(job, columns)
   const title = job.view === "bilanca" ? "Bilanca stanja" : "Izkaz poslovnega izida"
   const column = job.view === "bilanca" ? job.statement.currentDate : job.statement.period
+  const two = columns.showPrior
+  const priorGap = job.view === "bilanca" ? 84 : 120
+  const currentRight = PAGE_WIDTH - MARGIN - 8
+  const priorRight = currentRight - priorGap
+  const labelWidthBase = two ? 250 : 360
+  const aopCenter = two ? MARGIN + 300 : MARGIN + 400
 
   let page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
   let y = PAGE_HEIGHT - MARGIN
 
   y = drawHeader(page, font, fontBold, y, job, title)
-  y = drawTableHead(page, fontBold, y, column)
+  y = drawTableHead(page, fontBold, y, column, two ? "Preteklo leto" : undefined, priorGap)
 
   for (const row of rows) {
-    const labelWidth = 360 - row.depth * 12
+    const labelWidth = labelWidthBase - row.depth * 12
     const labelSize = row.band ? 10 : 8.5
     const labelFont = row.band || row.depth <= 1 ? fontBold : font
     const lines = wrap(row.label, labelFont, labelSize, labelWidth)
@@ -85,7 +94,7 @@ function appendStatement(pdf: PDFDocument, font: PDFFont, fontBold: PDFFont, job
     if (y - height < 48) {
       page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT])
       y = PAGE_HEIGHT - MARGIN
-      y = drawTableHead(page, fontBold, y, column)
+      y = drawTableHead(page, fontBold, y, column, two ? "Preteklo leto" : undefined, priorGap)
     }
     const last = rows[rows.length - 1] === row
     drawRoundRect(
@@ -109,20 +118,16 @@ function appendStatement(pdf: PDFDocument, font: PDFFont, fontBold: PDFFont, job
     })
     const aopWidth = font.widthOfTextAtSize(row.aop, 8)
     page.drawText(row.aop, {
-      x: MARGIN + 400 - aopWidth / 2,
+      x: aopCenter - aopWidth / 2,
       y: y - 12,
       size: 8,
       font,
       color: GOLD,
     })
-    const amountWidth = labelFont.widthOfTextAtSize(row.amount, 8.5)
-    page.drawText(row.amount, {
-      x: PAGE_WIDTH - MARGIN - 8 - amountWidth,
-      y: y - 12,
-      size: 8.5,
-      font: labelFont,
-      color: NAVY,
-    })
+    if (row.prior !== undefined) {
+      drawRight(page, row.prior, priorRight, y - 12, labelFont, 8.5, NAVY, priorGap - 12)
+    }
+    drawRight(page, row.amount, currentRight, y - 12, labelFont, 8.5, NAVY, two ? priorGap - 8 : 140)
     y -= height
   }
 
@@ -207,45 +212,63 @@ function drawHeader(page: PDFPage, font: PDFFont, fontBold: PDFFont, y: number, 
   return cursor - 16
 }
 
-function drawTableHead(page: PDFPage, fontBold: PDFFont, y: number, column: string) {
+function drawRight(
+  page: PDFPage,
+  text: string,
+  right: number,
+  y: number,
+  font: PDFFont,
+  size: number,
+  color: ReturnType<typeof rgb>,
+  maxWidth: number,
+) {
+  let used = size
+  while (used > 6 && font.widthOfTextAtSize(text, used) > maxWidth) used -= 0.25
+  const width = font.widthOfTextAtSize(text, used)
+  page.drawText(text, { x: right - width, y, size: used, font, color })
+}
+
+function drawTableHead(
+  page: PDFPage,
+  fontBold: PDFFont,
+  y: number,
+  column: string,
+  prior?: string,
+  priorGap = 84,
+) {
   const height = 18
+  const currentRight = PAGE_WIDTH - MARGIN - 8
   drawRoundRect(page, MARGIN, y - height, PAGE_WIDTH - MARGIN * 2, height, 8, { color: DEEP }, { tl: true, tr: true, bl: false, br: false })
   page.drawText("POSTAVKA", { x: MARGIN + 8, y: y - 12, size: 8, font: fontBold, color: WHITE })
-  page.drawText("AOP", { x: MARGIN + 392, y: y - 12, size: 8, font: fontBold, color: WHITE })
-  const columnWidth = fontBold.widthOfTextAtSize(column, 8)
-  page.drawText(column, {
-    x: PAGE_WIDTH - MARGIN - 8 - columnWidth,
-    y: y - 12,
-    size: 8,
-    font: fontBold,
-    color: WHITE,
-  })
+  page.drawText("AOP", { x: prior ? MARGIN + 286 : MARGIN + 392, y: y - 12, size: 8, font: fontBold, color: WHITE })
+  if (prior) drawRight(page, prior, currentRight - priorGap, y - 12, fontBold, 8, WHITE, priorGap - 12)
+  drawRight(page, column, currentRight, y - 12, fontBold, 8, WHITE, prior ? priorGap - 8 : 160)
   return y - height
 }
 
-function balanceRows(job: PrintJob): PdfRow[] {
+function balanceRows(job: PrintJob, columns: ShownColumns): PdfRow[] {
   const form = legalFormOf(job.statement)
-  const current = rollup(job.statement.balance.current, form)
-  return chart(form).lines.filter((line) => {
-    if (job.showZeros) return true
-    if ((current[line.aop] ?? 0) !== 0) return true
-    return descendantLeaves(line.aop, form).some((aop) => (current[aop] ?? 0) !== 0)
-  }).map((line) => ({
+  const current = columns.currentBalance
+  const prior = columns.priorBalance
+  return chart(form).lines.filter((line) => job.showZeros || rowHasAmount(line.aop, current, prior, descendantLeaves(line.aop, form))).map((line) => ({
     label: line.label,
     aop: line.aop,
     amount: formatCents(current[line.aop] ?? 0),
+    prior: columns.showPrior ? formatCents(prior?.[line.aop] ?? 0) : undefined,
     depth: line.depth,
     band: line.depth === 0,
   }))
 }
 
-function incomeRows(job: PrintJob): PdfRow[] {
+function incomeRows(job: PrintJob, columns: ShownColumns): PdfRow[] {
   const form = legalFormOf(job.statement)
-  const values = rollupIncome(job.statement.income, form)
-  return incomeLines(form).filter((line) => job.showZeros || (values[line.aop] ?? 0) !== 0).map((line) => ({
+  const values = columns.currentIncome
+  const prior = columns.priorIncome
+  return incomeLines(form).filter((line) => job.showZeros || rowHasAmount(line.aop, values, prior)).map((line) => ({
     label: line.label,
     aop: line.aop,
     amount: formatCents(values[line.aop] ?? 0),
+    prior: columns.showPrior ? formatCents(prior?.[line.aop] ?? 0) : undefined,
     depth: line.depth,
     band: line.depth === 0,
   }))

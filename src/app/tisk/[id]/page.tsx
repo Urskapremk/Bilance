@@ -16,7 +16,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
 
   return (
     <main className="mx-auto max-w-5xl bg-background print:max-w-none">
-      <StatementDocument statement={job.statement} view={job.view} showZeros={job.showZeros} />
+      <StatementDocument statement={job.statement} view={job.view} showZeros={job.showZeros} showPrevious={job.showPrevious} />
     </main>
   )
 }

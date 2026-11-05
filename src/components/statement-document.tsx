@@ -9,12 +9,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { comparePeriodDesc } from "@/lib/archive-period"
 import { chart, descendantLeaves, isCalculated } from "@/lib/charts"
-import { isImbalanceWarning, rollup, reviewColumn, sameDisplayedTotal, sheetWarnings } from "@/lib/compute"
+import { isImbalanceWarning, reviewColumn, sameDisplayedTotal, sheetWarnings } from "@/lib/compute"
 import { DavcniPanel } from "@/components/davcni-panel"
 import { EkarticaPanel } from "@/components/ekartica-panel"
 import { formatCents, parseCents, parseSloveneDate, splitPeriod } from "@/lib/format"
-import { incomeKind, incomeLines, rollupIncome, type IncomeLine } from "@/lib/income"
+import { incomeKind, incomeLines, type IncomeLine } from "@/lib/income"
 import { LEGAL_FORM_OPTIONS, legalFormOf, legalFormOption, periodResultCopy, type LegalForm } from "@/lib/legal-form"
+import { rowHasAmount, shownColumns } from "@/lib/prior-year"
 import { type LineDef } from "@/lib/schema"
 import { SIGNATORIES, signatoryById } from "@/lib/signatories"
 import { DEFAULT_SUBTITLE, IZKAZI_SUBTITLE, SUBTITLE_LIMIT, statementSubtitle, subtitleChoice } from "@/lib/subtitle"
@@ -25,6 +26,7 @@ export function StatementDocument({
   statement,
   view,
   showZeros,
+  showPrevious = false,
   toolbar,
   busy = false,
   onEdit,
@@ -43,6 +45,7 @@ export function StatementDocument({
   statement: Statement
   view: "bilanca" | "izkaz"
   showZeros: boolean
+  showPrevious?: boolean
   toolbar?: ReactNode
   busy?: boolean
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
@@ -61,8 +64,12 @@ export function StatementDocument({
   const form = legalFormOf(statement)
   const scheme = legalFormOption(form)
   const subtitle = statementSubtitle(statement.subtitle)
-  const current = rollup(statement.balance.current, form)
-  const income = rollupIncome(statement.income, form)
+  const columns = shownColumns(statement, showPrevious)
+  const current = columns.currentBalance
+  const income = columns.currentIncome
+  const priorBalance = columns.priorBalance
+  const priorIncome = columns.priorIncome
+  const showPrior = columns.showPrior
   const issues = reviewColumn(current, statement.currentDate)
   const assets = current["001"] ?? 0
   const sources = current["055"] ?? 0
@@ -144,8 +151,11 @@ export function StatementDocument({
                 </div>
               ) : null}
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground print:mt-1 print:text-[10.5px] print:leading-snug">
-                Obdobje {statement.period}. Stanje na dan {statement.currentDate}. Prikazano je samo tekoče leto. Znesek
-                popravite v vrstici, seštevki se osvežijo takoj. Zneski v evrih.
+                Obdobje {statement.period}. Stanje na dan {statement.currentDate}.{" "}
+                {showPrior
+                  ? "Prikazano je tekoče leto in preteklo leto."
+                  : "Prikazano je samo tekoče leto."}{" "}
+                Znesek popravite v vrstici, seštevki se osvežijo takoj. Zneski v evrih.
               </p>
               {onPeriod ? (
                 <PeriodFields
@@ -235,6 +245,8 @@ export function StatementDocument({
               company={statement.company}
               currentDate={statement.currentDate}
               current={current}
+              prior={priorBalance}
+              showPrior={showPrior}
               showZeros={showZeros}
               onEdit={onEdit}
               checks={checks}
@@ -246,6 +258,8 @@ export function StatementDocument({
               company={statement.company}
               period={statement.period}
               values={income}
+              prior={priorIncome}
+              showPrior={showPrior}
               showZeros={showZeros}
               onEdit={onEdit}
               checks={checks}
@@ -426,6 +440,8 @@ function BalanceTable({
   company,
   currentDate,
   current,
+  prior,
+  showPrior,
   showZeros,
   onEdit,
   checks,
@@ -435,21 +451,24 @@ function BalanceTable({
   company: string
   currentDate: string
   current: Record<string, number>
+  prior: Record<string, number> | null
+  showPrior: boolean
   showZeros: boolean
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
-  const rows = chart(form).lines.filter((line) => {
-    if (showZeros) return true
-    if ((current[line.aop] ?? 0) !== 0) return true
-    return descendantLeaves(line.aop, form).some((aop) => (current[aop] ?? 0) !== 0)
-  })
+  const rows = chart(form).lines.filter(
+    (line) => showZeros || rowHasAmount(line.aop, current, prior, descendantLeaves(line.aop, form)),
+  )
 
   return (
     <div className="min-w-0 overflow-x-auto">
-      <table className="w-full min-w-[640px] border-collapse text-sm print:min-w-0 print:text-[10.5px]">
-        <caption className="sr-only">Bilanca stanja {company}, {currentDate}</caption>
+      <table className={cn("w-full border-collapse text-sm print:min-w-0 print:text-[10.5px]", showPrior ? "min-w-[760px]" : "min-w-[640px]")}>
+        <caption className="sr-only">
+          Bilanca stanja {company}, {currentDate}
+          {showPrior ? ", preteklo leto" : ""}
+        </caption>
         <thead>
           <tr className="statement-head bg-deep-blue text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[10px]">
             {onToggleCheck ? (
@@ -459,7 +478,14 @@ function BalanceTable({
             ) : null}
             <th className="statement-edge-start px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-14 print:px-2 print:py-2">AOP</th>
-            <th className="statement-edge-end w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{currentDate}</th>
+            <th className={cn("w-40 px-3 py-3 text-right font-medium whitespace-nowrap print:w-[132px] print:px-3 print:py-2", !showPrior && "statement-edge-end md:pr-7")}>
+              {currentDate}
+            </th>
+            {showPrior ? (
+              <th className="statement-edge-end w-36 px-3 py-3 text-right font-medium whitespace-nowrap md:pr-7 print:w-[108px] print:px-3 print:py-2">
+                Preteklo leto
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -468,6 +494,7 @@ function BalanceTable({
               key={line.aop}
               line={line}
               primary={current[line.aop] ?? 0}
+              prior={showPrior ? (prior?.[line.aop] ?? 0) : undefined}
               editable={Boolean(onEdit) && !isCalculated(line.aop, form)}
               onCommit={onEdit ? (cents) => onEdit("bilanca", line.aop, cents) : undefined}
               checked={checks?.has(`bilanca:${line.aop}`) ?? false}
@@ -485,6 +512,8 @@ function IncomeTable({
   company,
   period,
   values,
+  prior,
+  showPrior,
   showZeros,
   onEdit,
   checks,
@@ -494,17 +523,22 @@ function IncomeTable({
   company: string
   period: string
   values: Record<string, number>
+  prior: Record<string, number> | null
+  showPrior: boolean
   showZeros: boolean
   onEdit?: (obrazec: "bilanca" | "izkaz", aop: string, cents: number) => void
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
 }) {
-  const rows = incomeLines(form).filter((line) => showZeros || (values[line.aop] ?? 0) !== 0)
+  const rows = incomeLines(form).filter((line) => showZeros || rowHasAmount(line.aop, values, prior))
 
   return (
     <div className="min-w-0 overflow-x-auto">
-      <table className="w-full min-w-[640px] border-collapse text-sm print:min-w-0 print:text-[10.5px]">
-        <caption className="sr-only">Izkaz poslovnega izida {company}</caption>
+      <table className={cn("w-full border-collapse text-sm print:min-w-0 print:text-[10.5px]", showPrior ? "min-w-[760px]" : "min-w-[640px]")}>
+        <caption className="sr-only">
+          Izkaz poslovnega izida {company}
+          {showPrior ? ", preteklo leto" : ""}
+        </caption>
         <thead>
           <tr className="statement-head bg-deep-blue text-left text-[11px] tracking-[0.14em] text-navy-foreground uppercase print:text-[10px]">
             {onToggleCheck ? (
@@ -514,7 +548,14 @@ function IncomeTable({
             ) : null}
             <th className="statement-edge-start px-5 py-3 font-medium md:px-7 print:px-3 print:py-2">Postavka</th>
             <th className="w-20 px-3 py-3 text-center font-medium print:w-14 print:px-2 print:py-2">AOP</th>
-            <th className="statement-edge-end w-44 px-3 py-3 text-right font-medium md:pr-7 print:w-[148px] print:px-3 print:py-2">{period}</th>
+            <th className={cn("w-44 px-3 py-3 text-right font-medium whitespace-nowrap print:px-3 print:py-2", !showPrior && "statement-edge-end md:pr-7 print:w-[148px]", showPrior && "print:w-[132px]")}>
+              {period}
+            </th>
+            {showPrior ? (
+              <th className="statement-edge-end w-36 px-3 py-3 text-right font-medium whitespace-nowrap md:pr-7 print:w-[108px] print:px-3 print:py-2">
+                Preteklo leto
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -523,6 +564,7 @@ function IncomeTable({
               key={line.aop}
               line={line}
               primary={values[line.aop] ?? 0}
+              prior={showPrior ? (prior?.[line.aop] ?? 0) : undefined}
               editable={Boolean(onEdit) && incomeKind(line.aop, form) !== null}
               onCommit={onEdit ? (cents) => onEdit("izkaz", line.aop, cents) : undefined}
               checked={checks?.has(`izkaz:${line.aop}`) ?? false}
@@ -538,6 +580,7 @@ function IncomeTable({
 function StatementRow({
   line,
   primary,
+  prior,
   editable = false,
   onCommit,
   checked = false,
@@ -545,6 +588,7 @@ function StatementRow({
 }: {
   line: LineDef | IncomeLine
   primary: number
+  prior?: number
   editable?: boolean
   onCommit?: (cents: number) => void
   checked?: boolean
@@ -582,13 +626,18 @@ function StatementRow({
         {line.label}
       </th>
       <td className="px-3 py-2.5 text-center font-mono text-xs text-gold tabular-nums print:px-2 print:py-[3px] print:text-[10px]">{line.aop}</td>
-      <td className={cn("statement-edge-end px-3 py-2.5 text-right tabular-nums md:pr-7 print:px-3 print:py-[3px]", band && "font-medium text-navy")}>
+      <td className={cn("px-3 py-2.5 text-right tabular-nums whitespace-nowrap print:px-3 print:py-[3px]", prior === undefined && "statement-edge-end md:pr-7", band && "font-medium text-navy")}>
         {editable && onCommit ? (
           <AmountField label={`${line.aop} ${line.label}`} value={primary} onCommit={onCommit} />
         ) : (
           formatCents(primary)
         )}
       </td>
+      {prior !== undefined ? (
+        <td className={cn("statement-edge-end px-3 py-2.5 text-right tabular-nums whitespace-nowrap md:pr-7 print:px-3 print:py-[3px]", band && "font-medium text-navy")}>
+          {formatCents(prior)}
+        </td>
+      ) : null}
     </tr>
   )
 }

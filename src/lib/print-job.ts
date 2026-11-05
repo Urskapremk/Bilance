@@ -8,6 +8,8 @@ export type PrintJob = {
   statement: Statement
   view: "bilanca" | "izkaz"
   showZeros: boolean
+  /** Samo prikaz. Skritje ne zbriše shranjenega preteklega leta. */
+  showPrevious?: boolean
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

@@ -161,6 +161,42 @@ test("izpis ne izpiše pravne oblike pod imenom, podpis ostane na prvi strani", 
   }
 })
 
+test("skritje preteklega leta ga pusti v podatkih in ga umakne iz PDF", async () => {
+  const withPrior: Statement = {
+    ...statement,
+    sourceKind: "ajpes",
+    balance: { current: { "052": 1_005_037 }, previous: { "052": 802_019 } },
+    income: { "140": 110_005 },
+    previousIncome: { "140": 90_040 },
+  }
+  const shown = await pdfText(await renderStatementPdf({ statement: withPrior, view: "bilanca", showZeros: false, showPrevious: true }))
+  assert.match(shown, /Preteklo leto/)
+  assert.match(shown, /10\.050,37/)
+  assert.match(shown, /8\.020,19/)
+  const hidden = await pdfText(await renderStatementPdf({ statement: withPrior, view: "bilanca", showZeros: false, showPrevious: false }))
+  assert.doesNotMatch(hidden, /Preteklo leto/)
+  assert.match(hidden, /10\.050,37/)
+  assert.doesNotMatch(hidden, /8\.020,19/)
+  assert.equal(withPrior.balance.previous["052"], 802_019)
+  assert.equal(withPrior.previousIncome?.["140"], 90_040)
+
+  const income = await pdfText(await renderStatementPdf({ statement: withPrior, view: "izkaz", showZeros: false, showPrevious: true }))
+  assert.match(income, /Preteklo leto/)
+  assert.match(income, /1\.100,05/)
+  assert.match(income, /900,40/)
+})
+
+async function pdfText(pdf: Uint8Array) {
+  const doc = await getDocument({ data: new Uint8Array(pdf), disableWorker: true }).promise
+  let joined = ""
+  for (let index = 1; index <= doc.numPages; index += 1) {
+    const page = await doc.getPage(index)
+    const text = await page.getTextContent()
+    joined += `${text.items.map((item) => ("str" in item ? item.str : "")).join(" ")}\n`
+  }
+  return joined
+}
+
 function fontName(text: { items: Array<{ str?: string; fontName?: string }> }, value: string) {
   return text.items.find((entry) => entry.str === value)?.fontName ?? ""
 }

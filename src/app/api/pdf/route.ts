@@ -7,6 +7,7 @@ type PdfBody = {
   statement?: PrintJob["statement"]
   view?: PrintJob["view"] | "oba"
   showZeros?: boolean
+  showPrevious?: boolean
 }
 
 export async function POST(request: Request) {
@@ -22,11 +23,13 @@ export async function POST(request: Request) {
         ? await renderBothStatementsPdf({
             statement: body.statement,
             showZeros: Boolean(body.showZeros),
+            showPrevious: Boolean(body.showPrevious),
           })
         : await renderStatementPdf({
             statement: body.statement,
             view,
             showZeros: Boolean(body.showZeros),
+            showPrevious: Boolean(body.showPrevious),
           })
     const filename = pdfName(body.statement.company, view)
     return new Response(Buffer.from(pdf), {

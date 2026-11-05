@@ -31,6 +31,7 @@ import {
 } from "@/lib/archive"
 import { comparePeriodDesc, emptyPeriodStatement, periodCountLabel, previousFullYear } from "@/lib/archive-period"
 import { ajpesUploadBlocked } from "@/lib/ajpes-form"
+import { defaultShowPriorYear, hasPriorYear } from "@/lib/prior-year"
 import { attachPublicFiling } from "@/lib/ajpes-public"
 import { dhApplicationName, dhWorkbookName, hasDhBankPack } from "@/lib/bank-form"
 import { DISCLOSURE_BANKS, disclosureWorkbookName, type DisclosureBankId } from "@/lib/razkritja"
@@ -96,6 +97,7 @@ const initialStatement: Statement = attachPublicFiling({
 export function BilanceApp() {
   const [view, setView] = useState<View>("bilanca")
   const [showZeros, setShowZeros] = useState(false)
+  const [priorChoice, setPriorChoice] = useState<{ id: string; show: boolean } | null>(null)
   const [statement, setStatement] = useState<Statement>(initialStatement)
   const [pdfUrl, setPdfUrl] = useState(DEFAULT_PDF)
   const [pdfName, setPdfName] = useState(initialStatement.sourceName)
@@ -1449,6 +1451,9 @@ export function BilanceApp() {
     }
   }
 
+  const priorIdentity = `${statement.company}|${statement.period}|${statement.sourceName}|${statement.sourceKind ?? ""}`
+  const showPrevious = priorChoice?.id === priorIdentity ? priorChoice.show : defaultShowPriorYear(statement)
+
   async function createPdf(scope: "one" | "both" = "one") {
     setExporting(scope)
     setError(null)
@@ -1460,6 +1465,7 @@ export function BilanceApp() {
           statement,
           view: scope === "both" ? "oba" : view,
           showZeros,
+          showPrevious,
         }),
       })
       if (!response.ok) {
@@ -1520,6 +1526,19 @@ export function BilanceApp() {
         </Tab>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        {hasPriorYear(statement) ? (
+          <button
+            type="button"
+            aria-pressed={showPrevious}
+            onClick={() => setPriorChoice({ id: priorIdentity, show: !showPrevious })}
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-sm font-medium",
+              showPrevious ? "border-gold bg-accent text-navy" : "border-border bg-card text-navy hover:border-gold",
+            )}
+          >
+            {showPrevious ? "Skrij preteklo leto" : "Prikaži preteklo leto"}
+          </button>
+        ) : null}
         <button
           type="button"
           aria-pressed={showZeros}
@@ -1675,6 +1694,7 @@ export function BilanceApp() {
             statement={statement}
             view={view}
             showZeros={showZeros}
+            showPrevious={showPrevious}
             toolbar={toolbar}
             busy={busy}
             onEdit={editAmount}
