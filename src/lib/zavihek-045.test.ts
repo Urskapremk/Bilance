@@ -17,6 +17,7 @@ import {
   loanSheetCells,
   parseAnalyticalGrid,
   parseAnalyticalTsv,
+  parseLoanGrid,
   parseLoanTsv,
   type LoanAnalyticalLine,
 } from "./zavihek-045.ts"
@@ -294,3 +295,74 @@ test("dve vrstici gresta na zavihek 045 in dve na zavihek 076", async () => {
 function tsvWord(text: string, x: number, y: number, w: number): string {
   return ["5", "1", "1", "1", "1", "1", String(x), String(y), String(w), "16", "90", text].join("\t")
 }
+
+test("kratka tabela posojilodajalcev obdrži lastnika brez davčne in cente", () => {
+  const lines = parseLoanGrid([
+    ["", "posojilodajalec", "", ""],
+    ["1", "lastnik", "", "19,40"],
+    ["2", "Nutralis group d.o.o.", "14702215", "19.300,00"],
+    ["3", "Lienelia", "78073642", "6.000,00"],
+    ["", "", "", "25.319,40"],
+  ])
+  assert.equal(lines.length, 3)
+  assert.equal(lines[0]?.name, "lastnik")
+  assert.equal(lines[0]?.taxNumber, undefined)
+  assert.equal(lines[0]?.closingCents, 1940)
+  assert.equal(lines[0]?.openingCents, undefined)
+  assert.equal(lines[0]?.increaseCents, undefined)
+  assert.equal(lines[0]?.decreaseCents, undefined)
+  assert.equal(lines[0]?.installmentCents, undefined)
+  assert.equal(lines[1]?.name, "Nutralis group d.o.o.")
+  assert.equal(lines[1]?.taxNumber, "14702215")
+  assert.equal(lines[1]?.closingCents, 1_930_000)
+  assert.equal(lines[2]?.name, "Lienelia")
+  assert.equal(lines[2]?.taxNumber, "78073642")
+  assert.equal(lines[2]?.closingCents, 600_000)
+  assert.equal(
+    lines.reduce((sum, line) => sum + (line.closingCents ?? 0), 0),
+    2_531_940,
+  )
+  const cells = loanSheetCells(SHEET_076, lines)
+  assert.equal(findBankCell(cells, SHEET_076, "B8")?.text, "lastnik")
+  assert.equal(findBankCell(cells, SHEET_076, "C8"), undefined)
+  assert.equal(findBankCell(cells, SHEET_076, "G8")?.euros, 1940)
+  assert.equal(findBankCell(cells, SHEET_076, "D8"), undefined)
+  assert.equal(findBankCell(cells, SHEET_076, "H8"), undefined)
+  assert.equal(findBankCell(cells, SHEET_076, "B9")?.text, "Nutralis group d.o.o.")
+  assert.equal(findBankCell(cells, SHEET_076, "C9")?.text, "14702215")
+  assert.equal(findBankCell(cells, SHEET_076, "G9")?.euros, 1_930_000)
+  assert.equal(findBankCell(cells, SHEET_076, "B10")?.text, "Lienelia")
+  assert.equal(findBankCell(cells, SHEET_076, "G10")?.euros, 600_000)
+  assert.equal(findBankCell(cells, SHEET_076, "B11"), undefined)
+  assert.equal(findBankCell(cells, SHEET_076, "G11"), undefined)
+})
+
+test("pika namesto vejice v enem znesku ostane pri centih", () => {
+  const lines = parseLoanGrid([
+    ["znesek", "posojilodajalec"],
+    ["19.40", "lastnik"],
+  ])
+  assert.equal(lines[0]?.name, "lastnik")
+  assert.equal(lines[0]?.closingCents, 1940)
+  assert.equal(lines[0]?.installmentCents, undefined)
+})
+
+test("široka tabela zapadlosti na posojila zapiše samo stanje", () => {
+  const lines = parseLoanGrid([
+    AGING_HEADERS,
+    ["1", "Sid banka d.d.", "12345678", "1.500,25", "1.000,00", "500,25", "500,25", "", "", "", ""],
+    ["2", "NLB d.d.", "", "80,10", "", "80,10", "", "", "", "", "80,10"],
+    ["", "SKUPAJ", "", "1.580,35", "", "", "", "", "", "", ""],
+  ])
+  assert.equal(lines.length, 2)
+  assert.equal(lines[0]?.name, "Sid banka d.d.")
+  assert.equal(lines[0]?.taxNumber, "12345678")
+  assert.equal(lines[0]?.closingCents, 150025)
+  assert.equal(lines[0]?.openingCents, undefined)
+  assert.equal(lines[0]?.increaseCents, undefined)
+  assert.equal(lines[0]?.decreaseCents, undefined)
+  assert.equal(lines[0]?.installmentCents, undefined)
+  assert.equal(lines[1]?.name, "NLB d.d.")
+  assert.equal(lines[1]?.taxNumber, undefined)
+  assert.equal(lines[1]?.closingCents, 8010)
+})

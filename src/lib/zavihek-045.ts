@@ -459,7 +459,7 @@ function assignCents(
   parts: string[] | undefined,
 ) {
   if (!parts?.length) return
-  const amount = parseCents(parts.join(""))
+  const amount = parseCents(sloveneAmount(parts.join("")))
   if (amount == null || amount === 0) return
   line[key] = amount
 }
@@ -670,9 +670,141 @@ function assignOptional(
 function optionalCents(raw: string): number | undefined {
   const trimmed = raw.trim()
   if (!trimmed || trimmed === "-" || trimmed === "—" || trimmed === "–") return undefined
-  const amount = parseCents(trimmed)
+  const amount = parseCents(sloveneAmount(trimmed))
   if (amount == null || amount === 0) return undefined
   return amount
+}
+
+/** Vejica je decimalno ločilo. 19.40 pomeni devetnajst evrov in štirideset centov. */
+function sloveneAmount(raw: string): string {
+  const compact = raw.replace(/\s/g, "")
+  if (compact.includes(",")) return compact
+  if (/^-?\d{1,3}(?:\.\d{3})*\.\d{2}$/.test(compact)) {
+    const last = compact.lastIndexOf(".")
+    return `${compact.slice(0, last)},${compact.slice(last + 1)}`
+  }
+  return compact
+}
+
+const AMOUNT_KINDS = new Set<AnalyticalKind>(["opening", "increase", "decrease", "closing", "installment"])
+
+/**
+ * Kratka tabela (naziv, davčna ni obvezna, en znesek, skupaj) in široka
+ * tabela zapadlosti. Razredi zapadlosti se ne prepišejo v zneske.
+ */
+export function parseLoanGrid(grid: string[][]): LoanAnalyticalLine[] {
+  const rows = grid.map((row) => row.map((cell) => normalizeLoanCell(cell ?? "")))
+  const limit = Math.min(rows.length, 40)
+  for (let index = 0; index < limit; index += 1) {
+    const header = (rows[index] ?? []).map((cell) => analyticalKind(cell))
+    if (!header.includes("name")) continue
+    const kinds = inferMissing(header, rows.slice(index + 1))
+    if (!hasAmountKind(kinds)) continue
+    const lines = linesFromGrid(rows.slice(index + 1), kinds)
+    if (lines.length) return lines
+  }
+  const width = Math.max(0, ...rows.map((row) => row.length))
+  if (width < 2 || rows.length < 2) return []
+  const kinds = inferMissing(Array.from({ length: width }, () => null), rows)
+  if (!kinds.includes("name") || !hasAmountKind(kinds)) return []
+  return linesFromGrid(rows, kinds)
+}
+
+function linesFromGrid(rows: string[][], kinds: (AnalyticalKind | null)[]): LoanAnalyticalLine[] {
+  const lines: LoanAnalyticalLine[] = []
+  for (const row of rows) {
+    if (row.every((cell) => !cell.trim())) continue
+    if (isTotalGridRow(row, kinds)) break
+    const name = textOf(row, kinds, "name")
+    if (name && analyticalKind(name) === "name" && !rowHasMoney(row, kinds)) continue
+    const parsed = lineFromAnalytical(row, kinds)
+    if (parsed && loanLineHasData(parsed) && (parsed.name || parsed.taxNumber)) lines.push(parsed)
+  }
+  return lines
+}
+
+function isTotalGridRow(row: string[], kinds: (AnalyticalKind | null)[]): boolean {
+  const joined = row.join(" ").trim()
+  if (TOTAL.test(joined)) return true
+  const folded = joined
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+  if (/\bskupaj\b/.test(folded)) return true
+  const name = textOf(row, kinds, "name")
+  if (name && (TOTAL.test(name) || analyticalKind(name) === "name")) return Boolean(rowHasMoney(row, kinds) || TOTAL.test(name))
+  const tax = textOf(row, kinds, "tax").replace(/\s/g, "")
+  if (!name && !isTax(tax) && rowHasMoney(row, kinds)) return true
+  return false
+}
+
+function textOf(row: string[], kinds: (AnalyticalKind | null)[], kind: AnalyticalKind): string {
+  return kinds
+    .map((column, index) => (column === kind ? (row[index] ?? "").trim() : ""))
+    .filter(Boolean)
+    .join(" ")
+    .trim()
+}
+
+function rowHasMoney(row: string[], kinds: (AnalyticalKind | null)[]): boolean {
+  return kinds.some((kind, index) => Boolean(kind && AMOUNT_KINDS.has(kind) && isMoney((row[index] ?? "").trim())))
+}
+
+function hasAmountKind(kinds: readonly (AnalyticalKind | null)[]): boolean {
+  return kinds.some((kind) => Boolean(kind && AMOUNT_KINDS.has(kind)))
+}
+
+function inferMissing(kinds: readonly (AnalyticalKind | null)[], rows: string[][]): (AnalyticalKind | null)[] {
+  const width = Math.max(kinds.length, ...rows.map((row) => row.length), 0)
+  const next = Array.from({ length: width }, (_, index) => kinds[index] ?? null)
+  if (!next.includes("tax")) {
+    const column = bestColumn(rows, width, (value) => isTax(value.replace(/\s/g, "")), (index) => next[index] == null)
+    if (column >= 0) next[column] = "tax"
+  }
+  if (!hasAmountKind(next)) {
+    const column = bestColumn(rows, width, isMoney, (index) => next[index] == null)
+    if (column >= 0) next[column] = "closing"
+  }
+  if (!next.includes("name")) {
+    const column = bestColumn(rows, width, looksLikeName, (index) => next[index] == null)
+    if (column >= 0) next[column] = "name"
+  }
+  return next
+}
+
+function bestColumn(
+  rows: string[][],
+  width: number,
+  accept: (value: string) => boolean,
+  free: (index: number) => boolean,
+): number {
+  let best = -1
+  let score = 0
+  for (let index = 0; index < width; index += 1) {
+    if (!free(index)) continue
+    const values = rows.map((row) => (row[index] ?? "").trim()).filter(Boolean)
+    if (!values.length) continue
+    const hits = values.filter(accept).length
+    if (hits < Math.ceil(values.length * 0.6) || hits <= score) continue
+    score = hits
+    best = index
+  }
+  return best
+}
+
+function looksLikeName(value: string): boolean {
+  const text = value.trim()
+  if (text.length < 2 || isMoney(text) || isTax(text.replace(/\s/g, "")) || /^\d+$/.test(text)) return false
+  return /\p{L}/u.test(text)
+}
+
+function normalizeLoanCell(value: string): string {
+  const trimmed = value.replace(/\s+/g, " ").trim()
+  const compact = trimmed.replace(/\s/g, "")
+  if (isMoney(compact)) return compact
+  const slovene = sloveneAmount(compact)
+  if (slovene !== compact && isMoney(slovene)) return slovene
+  return trimmed
 }
 
 function analyticalKind(value: string): AnalyticalKind | null {
@@ -693,6 +825,7 @@ function analyticalKind(value: string): AnalyticalKind | null {
   if (/povec|vecan/.test(header)) return "increase"
   if (/zmanj/.test(header)) return "decrease"
   if (/obrok/.test(header)) return "installment"
+  if (header === "znesek" || header === "nesek") return "closing"
   if (/namen/.test(header)) return "purpose"
   if (/obdob|placil/.test(header)) return "period"
   if (/davc/.test(header) || header === "stevilka" || header.endsWith(" stevilka")) return "tax"
