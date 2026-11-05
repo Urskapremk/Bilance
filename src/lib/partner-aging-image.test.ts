@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import test from "node:test"
 
+import sharp from "sharp"
+
 import { findBankCell } from "./bank-form.ts"
 import { agingSheetCells, agingTotalCents, parseAgingGrid } from "./partner-aging.ts"
 import { finishAgingOcr, ocrWordsToGrid, parseAgingImage, type OcrWord } from "./partner-aging-image.ts"
@@ -113,44 +115,51 @@ test("posnetek z 11 dobavitelji napolni vrstice brez izmišljenih razredov", () 
 
 const KUPCI = "050 Krat.ter.kupci"
 
-test("posnetek kupcev prebere vseh 11 vrstic in skupaj 125.156,66", async () => {
-  const file = path.join(process.cwd(), "src/lib/fixtures/kupci-terjatve.png")
+test("posnetek kupcev prebere vseh 11 vrstic in skupaj 125.156,66", { timeout: 120_000 }, async () => {
+  const png = await readFile(path.join(process.cwd(), "src/lib/fixtures/kupci-terjatve.png"))
+  const images = [
+    png,
+    await sharp(png).jpeg({ quality: 90 }).toBuffer(),
+    await sharp(png).webp({ quality: 90 }).toBuffer(),
+  ]
   try {
-    const parties = await parseAgingImage(await readFile(file), "kupci")
-    assert.equal(parties.length, 11)
-    assert.equal(parties.some((row) => row.name.toLowerCase() === "skupaj"), false)
-    assert.equal(parties[0]?.name, "Telemach d.o.o.")
-    assert.equal(parties[0]?.taxNumber, "66863627")
-    assert.equal(parties[0]?.stanje, 4_392_332)
-    assert.equal(parties[0]?.nezapadlo, 4_392_332)
-    assert.equal(parties[0]?.zapadlo, 0)
-    assert.equal(parties[0]?.do30, 0)
-    assert.equal(parties[3]?.name, "SŽ Express d.o.o.")
-    assert.equal(parties[3]?.taxNumber, "20643691")
-    assert.equal(parties[3]?.stanje, 828_502)
-    assert.equal(parties[3]?.d150, 0)
-    assert.equal(parties[3]?.nad150, 828_502)
-    assert.equal(parties[8]?.name, "Ayvens Slovenija d.o.o.")
-    assert.equal(parties[8]?.do30, 162_550)
-    assert.equal(parties[8]?.nezapadlo, 0)
-    assert.equal(parties[9]?.name, "Pivovarna Laško d.o.o.")
-    assert.equal(parties[9]?.nad150, 24_337)
-    assert.equal(parties[10]?.name, "ostali")
-    assert.equal(parties[10]?.taxNumber, "")
-    assert.equal(parties[10]?.nad150, 5_211)
-    assert.equal(parties[10]?.nezapadlo, 0)
-    assert.equal(agingTotalCents(parties), 12_515_666)
-    const cells = agingSheetCells(KUPCI, "kupci", parties)
-    assert.equal(findBankCell(cells, KUPCI, "B8")?.text, "Telemach d.o.o.")
-    assert.equal(findBankCell(cells, KUPCI, "G8")?.euros, 4_392_332)
-    assert.equal(findBankCell(cells, KUPCI, "I8"), undefined)
-    assert.equal(findBankCell(cells, KUPCI, "L11"), undefined)
-    assert.equal(findBankCell(cells, KUPCI, "M11")?.euros, 828_502)
-    assert.equal(findBankCell(cells, KUPCI, "M18")?.euros, 5_211)
-    const written = cells
-      .filter((cell) => cell.sheet === KUPCI && cell.euros !== undefined && /^D\d+$/.test(cell.cell))
-      .reduce((sum, cell) => sum + (cell.euros ?? 0), 0)
-    assert.equal(written, 12_515_666)
+    for (const image of images) {
+      const parties = await parseAgingImage(image, "kupci")
+      assert.equal(parties.length, 11)
+      assert.equal(parties.some((row) => row.name.toLowerCase() === "skupaj"), false)
+      assert.equal(parties[0]?.name, "Telemach d.o.o.")
+      assert.equal(parties[0]?.taxNumber, "66863627")
+      assert.equal(parties[0]?.stanje, 4_392_332)
+      assert.equal(parties[0]?.nezapadlo, 4_392_332)
+      assert.equal(parties[0]?.zapadlo, 0)
+      assert.equal(parties[0]?.do30, 0)
+      assert.equal(parties[3]?.name, "SŽ Express d.o.o.")
+      assert.equal(parties[3]?.taxNumber, "20643691")
+      assert.equal(parties[3]?.stanje, 828_502)
+      assert.equal(parties[3]?.d150, 0)
+      assert.equal(parties[3]?.nad150, 828_502)
+      assert.equal(parties[8]?.name, "Ayvens Slovenija d.o.o.")
+      assert.equal(parties[8]?.do30, 162_550)
+      assert.equal(parties[8]?.nezapadlo, 0)
+      assert.equal(parties[9]?.name, "Pivovarna Laško d.o.o.")
+      assert.equal(parties[9]?.nad150, 24_337)
+      assert.equal(parties[10]?.name, "ostali")
+      assert.equal(parties[10]?.taxNumber, "")
+      assert.equal(parties[10]?.nad150, 5_211)
+      assert.equal(parties[10]?.nezapadlo, 0)
+      assert.equal(agingTotalCents(parties), 12_515_666)
+      const cells = agingSheetCells(KUPCI, "kupci", parties)
+      assert.equal(findBankCell(cells, KUPCI, "B8")?.text, "Telemach d.o.o.")
+      assert.equal(findBankCell(cells, KUPCI, "G8")?.euros, 4_392_332)
+      assert.equal(findBankCell(cells, KUPCI, "I8"), undefined)
+      assert.equal(findBankCell(cells, KUPCI, "L11"), undefined)
+      assert.equal(findBankCell(cells, KUPCI, "M11")?.euros, 828_502)
+      assert.equal(findBankCell(cells, KUPCI, "M18")?.euros, 5_211)
+      const written = cells
+        .filter((cell) => cell.sheet === KUPCI && cell.euros !== undefined && /^D\d+$/.test(cell.cell))
+        .reduce((sum, cell) => sum + (cell.euros ?? 0), 0)
+      assert.equal(written, 12_515_666)
+    }
   } finally {
     await finishAgingOcr()
   }
