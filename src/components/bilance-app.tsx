@@ -1,6 +1,6 @@
 "use client"
 
-import { Archive, ArrowLeft, FileDown, FileSpreadsheet, FileText, FileUp, Printer, Receipt, RefreshCw, Save, UserPlus } from "lucide-react"
+import { Archive, ArrowLeft, Check, FileDown, FileSpreadsheet, FileText, FileUp, Printer, Receipt, RefreshCw, Save, UserPlus } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type FormEvent, type MouseEvent } from "react"
 
@@ -71,6 +71,30 @@ type View = "bilanca" | "izkaz"
 
 const SCREENSHOT_ACCEPT = ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
 
+type ShotField = AgingKind | "045" | "076"
+
+function ShotTitle({ name, loaded }: { name: string; loaded: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <p className="min-w-0 font-medium break-words text-navy">{name}</p>
+      {loaded ? (
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-navy px-2 py-1 text-sm font-semibold leading-none text-white">
+          <Check className="size-5 shrink-0" strokeWidth={3} aria-hidden="true" />
+          Naloženo
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function ShotUnread() {
+  return (
+    <p className="mt-2 text-sm text-destructive" role="alert">
+      Slike ni bilo mogoče prebrati.
+    </p>
+  )
+}
+
 type Workspace = {
   statement: Statement
   pdf: ArrayBuffer
@@ -127,6 +151,7 @@ export function BilanceApp() {
   const [supplierOver, setSupplierOver] = useState(false)
   const [loan045Over, setLoan045Over] = useState(false)
   const [loan076Over, setLoan076Over] = useState(false)
+  const [unreadShot, setUnreadShot] = useState<Partial<Record<ShotField, true>>>({})
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
   const [saveAsk, setSaveAsk] = useState(false)
   const [savingArchive, setSavingArchive] = useState(false)
@@ -165,7 +190,7 @@ export function BilanceApp() {
   const sheet076InputRef = useRef<HTMLInputElement>(null)
   const sheet045Epoch = useRef(0)
   const sheet076Epoch = useRef(0)
-  const agingEpoch = useRef(0)
+  const agingEpoch = useRef({ kupci: 0, dobavitelji: 0 })
   const cardInputRef = useRef<HTMLInputElement>(null)
   const taxInputRef = useRef<HTMLInputElement>(null)
   const newFileRef = useRef<HTMLInputElement>(null)
@@ -209,14 +234,19 @@ export function BilanceApp() {
   useEffect(() => {
     const company = statement.company
     const period = statement.period
-    const epoch = agingEpoch.current
+    const seenKupci = agingEpoch.current.kupci
+    const seenDobavitelji = agingEpoch.current.dobavitelji
+    setUnreadShot({})
+    setKupci(null)
+    setDobavitelji(null)
+    setLoans045(null)
+    setLoans076(null)
     if (!company || !period.trim()) return
     void readPartnerAging(company, period)
       .then((stored) => {
-        if (epoch !== agingEpoch.current) return
         if (statementRef.current.company !== company || statementRef.current.period !== period) return
-        setKupci(stored.kupci.length ? stored.kupci : null)
-        setDobavitelji(stored.dobavitelji.length ? stored.dobavitelji : null)
+        if (seenKupci === agingEpoch.current.kupci) setKupci(stored.kupci.length ? stored.kupci : null)
+        if (seenDobavitelji === agingEpoch.current.dobavitelji) setDobavitelji(stored.dobavitelji.length ? stored.dobavitelji : null)
       })
       .catch(() => undefined)
     void readLoan045(company, period)
@@ -1426,23 +1456,34 @@ export function BilanceApp() {
       setError("Najprej odprite bilanco.")
       return
     }
-    agingEpoch.current += 1
-    const epoch = agingEpoch.current
+    agingEpoch.current[kind] += 1
+    const epoch = agingEpoch.current[kind]
     setAgingBusy(kind)
     setError(null)
+    setUnreadShot((current) => {
+      if (!current[kind]) return current
+      const next = { ...current }
+      delete next[kind]
+      return next
+    })
     try {
       const rows = await readAgingFile(file, kind)
       await writePartnerAging(company, period, kind, rows)
-      if (epoch !== agingEpoch.current) return
+      if (epoch !== agingEpoch.current[kind]) return
       if (statementRef.current.company !== company || statementRef.current.period !== period) return
       if (kind === "kupci") setKupci(rows)
       else setDobavitelji(rows)
     } catch (caught) {
-      if (epoch === agingEpoch.current) {
+      if (
+        epoch === agingEpoch.current[kind] &&
+        statementRef.current.company === company &&
+        statementRef.current.period === period
+      ) {
         setError(caught instanceof Error ? caught.message : "Tabele ni bilo mogoče prebrati.")
+        setUnreadShot((current) => ({ ...current, [kind]: true }))
       }
     } finally {
-      if (epoch === agingEpoch.current) setAgingBusy(null)
+      if (epoch === agingEpoch.current[kind]) setAgingBusy((current) => (current === kind ? null : current))
     }
   }
 
@@ -1577,6 +1618,12 @@ export function BilanceApp() {
     if (kind === "076") setSheet076Busy(true)
     else setSheet045Busy(true)
     setError(null)
+    setUnreadShot((current) => {
+      if (!current[kind]) return current
+      const next = { ...current }
+      delete next[kind]
+      return next
+    })
     try {
       const body = new FormData()
       body.set("file", image)
@@ -1597,8 +1644,13 @@ export function BilanceApp() {
       if (kind === "076") setLoans076(data.lines)
       else setLoans045(data.lines)
     } catch (caught) {
-      if (epoch === epochRef.current) {
+      if (
+        epoch === epochRef.current &&
+        statementRef.current.company === company &&
+        statementRef.current.period === period
+      ) {
         setError(caught instanceof Error ? caught.message : "Tabele na posnetku ni bilo mogoče prebrati.")
+        setUnreadShot((current) => ({ ...current, [kind]: true }))
       }
     } finally {
       if (epoch === epochRef.current) {
@@ -2259,7 +2311,8 @@ export function BilanceApp() {
                         data-kupci-paste=""
                         tabIndex={0}
                         role="group"
-                        aria-label="Kupci"
+                        aria-label={kupci?.length ? "Kupci, naloženo" : "Kupci"}
+                        data-nalozeno={kupci?.length ? "da" : "ne"}
                         className={cn(
                           "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
                           customerOver ? "border-gold bg-gold/10 text-navy" : "border-border",
@@ -2278,7 +2331,7 @@ export function BilanceApp() {
                           dropAgingImage(event.dataTransfer, "kupci")
                         }}
                       >
-                        <p className="font-medium text-navy">Kupci</p>
+                        <ShotTitle name="Kupci" loaded={Boolean(kupci?.length)} />
                         <p>
                           Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
                           kratkoročne terjatve do kupcev.
@@ -2294,12 +2347,14 @@ export function BilanceApp() {
                           <FileUp />
                           {agingBusy === "kupci" ? "Berem kupce…" : "Naloži kupce"}
                         </Button>
+                        {unreadShot.kupci && !kupci?.length ? <ShotUnread /> : null}
                       </div>
                       <div
                         data-dobavitelji-paste=""
                         tabIndex={0}
                         role="group"
-                        aria-label="Dobavitelji"
+                        aria-label={dobavitelji?.length ? "Dobavitelji, naloženo" : "Dobavitelji"}
+                        data-nalozeno={dobavitelji?.length ? "da" : "ne"}
                         className={cn(
                           "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
                           supplierOver ? "border-gold bg-gold/10 text-navy" : "border-border",
@@ -2318,7 +2373,7 @@ export function BilanceApp() {
                           dropAgingImage(event.dataTransfer, "dobavitelji")
                         }}
                       >
-                        <p className="font-medium text-navy">Dobavitelji</p>
+                        <ShotTitle name="Dobavitelji" loaded={Boolean(dobavitelji?.length)} />
                         <p>
                           Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice na
                           zavihek 093.
@@ -2334,12 +2389,14 @@ export function BilanceApp() {
                           <FileUp />
                           {agingBusy === "dobavitelji" ? "Berem dobavitelje…" : "Naloži dobavitelje"}
                         </Button>
+                        {unreadShot.dobavitelji && !dobavitelji?.length ? <ShotUnread /> : null}
                       </div>
                       <div
                         data-posojila-paste=""
                         tabIndex={0}
                         role="group"
-                        aria-label="Kratkoročna dana posojila"
+                        aria-label={loans045?.length ? "Kratkoročna dana posojila, naloženo" : "Kratkoročna dana posojila"}
+                        data-nalozeno={loans045?.length ? "da" : "ne"}
                         className={cn(
                           "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
                           loan045Over ? "border-gold bg-gold/10 text-navy" : "border-border",
@@ -2358,7 +2415,7 @@ export function BilanceApp() {
                           dropLoanImage(event.dataTransfer, "045")
                         }}
                       >
-                        <p className="font-medium text-navy">Kratkoročna dana posojila</p>
+                        <ShotTitle name="Kratkoročna dana posojila" loaded={Boolean(loans045?.length)} />
                         <p>
                           Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
                           kratkoročna dana posojila.
@@ -2374,12 +2431,16 @@ export function BilanceApp() {
                           <FileUp />
                           {sheet045Busy ? "Berem kratkoročna dana posojila…" : "Naloži kratkoročna dana posojila"}
                         </Button>
+                        {unreadShot["045"] && !loans045?.length ? <ShotUnread /> : null}
                       </div>
                       <div
                         data-obveznosti-paste=""
                         tabIndex={0}
                         role="group"
-                        aria-label="Dolgoročne finančne obveznosti"
+                        aria-label={
+                          loans076?.length ? "Dolgoročne finančne obveznosti, naloženo" : "Dolgoročne finančne obveznosti"
+                        }
+                        data-nalozeno={loans076?.length ? "da" : "ne"}
                         className={cn(
                           "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
                           loan076Over ? "border-gold bg-gold/10 text-navy" : "border-border",
@@ -2398,7 +2459,7 @@ export function BilanceApp() {
                           dropLoanImage(event.dataTransfer, "076")
                         }}
                       >
-                        <p className="font-medium text-navy">Dolgoročne finančne obveznosti</p>
+                        <ShotTitle name="Dolgoročne finančne obveznosti" loaded={Boolean(loans076?.length)} />
                         <p>
                           Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
                           dolgoročne finančne obveznosti.
@@ -2414,6 +2475,7 @@ export function BilanceApp() {
                           <FileUp />
                           {sheet076Busy ? "Berem dolgoročne finančne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
                         </Button>
+                        {unreadShot["076"] && !loans076?.length ? <ShotUnread /> : null}
                       </div>
                       <p>
                         Razkritja se napolnijo iz odprte bilance {statement.period}. V vsako polje prilepite posnetek
