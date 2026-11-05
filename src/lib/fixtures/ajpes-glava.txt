@@ -1,0 +1,26 @@
+Podatki iz letnega poročila za obdobje 01.01.2025 - 31.12.2025
+Osnovni podatki
+Vrsta: Gospodarska družba
+Matična številka 1234567000
+Davčna številka 87654321
+Ime poslovnega subjekta SEVERNICA TRGOVINA D.O.O.
+Sedež (ulica, hišna številka in kraj) Vojkova cesta 58, 1000 Ljubljana
+Velikost Mikro podjetje
+Računovodimo SRS - Slovenski računovodski standardi (2024)
+Oseba, odgovorna za sestavljanje bilance Urška Premk
+Telefonska številka za komunikacijo v zvezi s 040 350 388
+predložitvijo bilance
+Elektronski naslov kontaktne osebe info@hnatura.com
+Vodja poslovnega subjekta Nika Prpar
+Kraj Ljubljana
+Obdobje poročanja
+od 1.1.2025
+do 31.12.2025
+
+PODATKI IZ BILANCE STANJA
+AOP Postavka Tekočega leta Prejšnjega leta
+001 SREDSTVA 10.000,00 8.000,00
+052 Denarna sredstva 10.000,00 8.000,00
+058 Osnovni kapital 10.000,00 8.000,00
+IZKAZ POSLOVNEGA IZIDA
+112 Čisti prihodki od prodaje proizvodov in storitev razen najemnin 4.000,00 3.000,00

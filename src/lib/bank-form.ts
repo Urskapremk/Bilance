@@ -1,3 +1,4 @@
+import type { AjpesHeader } from "@/lib/ajpes-header"
 import { clientKey } from "@/lib/clients"
 import { parseSloveneDate, splitPeriod } from "@/lib/format"
 import { rollupIncome } from "@/lib/income"
@@ -310,17 +311,31 @@ const EMPTY_COMPANY: DhCompany = {
  * Podatki o firmi se vpišejo samo, če jih stranka ima. Ostale celice ostanejo prazne.
  */
 export function disclosureCells(
-  statement: BankStatement & { registration?: string; previousIncome?: Record<string, number> },
+  statement: BankStatement & {
+    registration?: string
+    previousIncome?: Record<string, number>
+    ajpesHeader?: AjpesHeader
+  },
 ): BankCell[] {
   const period = splitPeriod(statement.period || "")
   const start = period ? civilDate(period.start) : null
   const end = period ? civilDate(period.end) : civilDate(statement.currentDate || "")
   const reportedAt = civilDate(statement.currentDate || "") ?? end ?? undefined
   const form = legalFormOf(statement)
+  const header = statement.ajpesHeader
   const writes: BankCell[] = []
-  text(writes, SHEET.osnovni, "D8", statement.company.trim())
-  text(writes, SHEET.osnovni, "D10", statement.registration?.trim() ?? "")
-  text(writes, SHEET.osnovni, "D13", disclosureKind(statement))
+  text(writes, SHEET.osnovni, "D8", header?.name?.trim() || statement.company.trim())
+  text(writes, SHEET.osnovni, "D9", header?.seat?.trim() ?? "")
+  text(writes, SHEET.osnovni, "D10", header?.registration?.trim() || statement.registration?.trim() || "")
+  text(writes, SHEET.osnovni, "D11", header?.taxNumber?.trim() ?? "")
+  text(writes, SHEET.osnovni, "D12", header?.director?.trim() ?? "")
+  text(writes, SHEET.osnovni, "D13", header?.kind !== undefined ? header.kind : disclosureKind(statement))
+  if (header?.size) writes.push({ sheet: SHEET.osnovni, cell: "D14", number: header.size })
+  if (header?.accounting) writes.push({ sheet: SHEET.osnovni, cell: "D15", number: header.accounting })
+  text(writes, SHEET.osnovni, "D21", header?.place?.trim() ?? "")
+  text(writes, SHEET.osnovni, "D28", header?.contact?.trim() ?? "")
+  text(writes, SHEET.osnovni, "D29", header?.phone?.trim() ?? "")
+  text(writes, SHEET.osnovni, "D30", header?.email?.trim() ?? "")
   if (start) writes.push({ sheet: SHEET.osnovni, cell: "D18", number: excelSerial(start) })
   if (end) writes.push({ sheet: SHEET.osnovni, cell: "D19", number: excelSerial(end) })
   if (reportedAt) writes.push({ sheet: SHEET.osnovni, cell: "D20", number: excelSerial(reportedAt) })

@@ -57,5 +57,6 @@ export function statementForClient(statement: Statement, company: string): State
     davcni: statement.davcni,
     previousIncome: statement.previousIncome,
     sourceKind: statement.sourceKind,
+    ajpesHeader: statement.ajpesHeader,
   })
 }

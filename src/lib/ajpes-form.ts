@@ -1,3 +1,4 @@
+import { hasAjpesHeader, mergeAjpesHeader, parseAjpesHeader } from "@/lib/ajpes-header"
 import { samePeriod } from "@/lib/archive-period"
 import { chart } from "@/lib/charts"
 import { rollup } from "@/lib/compute"
@@ -120,6 +121,9 @@ export function applyAjpesText(base: Statement, text: string, sourceName: string
   }
   if (hasPrevious) notes.push("Primerjalni stolpec je prebran iz obrazca.")
 
+  const ajpesHeader = mergeAjpesHeader(base.ajpesHeader, parseAjpesHeader(text))
+  if (hasAjpesHeader(ajpesHeader)) notes.push("Osnovni podatki so prebrani iz obrazca AJPES.")
+
   const next: Statement = {
     company: base.company,
     period: typed ? base.period : read ? `${read.start}–${read.end}` : base.period,
@@ -137,6 +141,7 @@ export function applyAjpesText(base: Statement, text: string, sourceName: string
     ekartica: base.ekartica,
     davcni: base.davcni,
   }
+  if (ajpesHeader) next.ajpesHeader = ajpesHeader
   if (previousIncome && hasAmounts(previousIncome)) next.previousIncome = previousIncome
   return next
 }

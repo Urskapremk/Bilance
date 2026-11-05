@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 
+import type { AjpesHeader } from "@/lib/ajpes-header"
 import { disclosureCells, type BankStatement } from "@/lib/bank-form"
 import { fillDhWorkbook } from "@/lib/bank-xlsx"
 import { disclosureWorkbookName, isDisclosureBank } from "@/lib/razkritja"
@@ -13,6 +14,7 @@ type Incoming = BankStatement & {
   registration?: string
   previousIncome?: Record<string, number>
   publicPrevious?: { registration?: string } | null
+  ajpesHeader?: AjpesHeader
 }
 
 export async function POST(request: Request) {

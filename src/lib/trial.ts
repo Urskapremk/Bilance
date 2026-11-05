@@ -7,6 +7,7 @@ import {
   isBalanceLine,
   isSelectableAop,
 } from "@/lib/account-map"
+import type { AjpesHeader } from "@/lib/ajpes-header"
 import { attachPublicFiling, type PublicFiling } from "@/lib/ajpes-public"
 import { chart } from "@/lib/charts"
 import { balanceDifferenceSentence, rollup, sameDisplayedTotal, sheetWarnings } from "@/lib/compute"
@@ -32,6 +33,8 @@ export type Statement = {
   previousIncome?: Record<string, number>
   /** ajpes: zneski so prebrani iz izdelanega obrazca, ne iz bruto bilance. */
   sourceKind?: "ajpes"
+  /** Osnovni podatki z naslovnice izdelanega obrazca AJPES. */
+  ajpesHeader?: AjpesHeader
   notes: string[]
   warnings: string[]
   /** Izbrani podpis na dnu obrazca. */
