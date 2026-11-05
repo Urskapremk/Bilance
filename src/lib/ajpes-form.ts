@@ -187,12 +187,23 @@ function projectIncome(amounts: Record<string, number>, form: LegalForm): Record
   return projectAmounts(amounts, incomeCalculatedOrder(), (leaves) => rollupIncome(leaves, form))
 }
 
+/**
+ * Na obrazcu je levi znesek tekoče leto, desni prejšnje.
+ * Pojasnila pred obrazcem omenijo preteklo leto, še preden pride glava.
+ * Zato gleda samo vrstico, kjer sta oba stolpca drug ob drugem.
+ */
 function columnCurrentFirst(text: string): boolean {
-  const lower = text.toLocaleLowerCase("sl")
-  const current = lower.search(/tekoč/)
-  const previous = lower.search(/prejšnj|pretekl/)
-  if (current === -1 || previous === -1) return true
-  return current < previous
+  const currentRe = /tekoč\p{L}*\s+let\p{L}*/u
+  const previousRe = /(?:prejšnj|pretekl)\p{L}*\s+let\p{L}*/u
+  for (const line of text.split(/\n/)) {
+    const lower = line.toLocaleLowerCase("sl")
+    const current = currentRe.exec(lower)
+    const previous = previousRe.exec(lower)
+    if (!current || !previous) continue
+    if (Math.abs(current.index - previous.index) > 80) continue
+    return current.index < previous.index
+  }
+  return true
 }
 
 function periodFromText(text: string): { start: string; end: string } | null {
@@ -234,9 +245,14 @@ function directRows(line: string, amount: string, currentFirst: boolean): RawRow
 function startRow(line: string, amount: string, currentFirst: boolean): RawRow[] {
   const start = line.match(new RegExp(`^(?:AOP\\s+)?(${AOP_CODE})\\b`, "i"))
   if (!start?.[1]) return []
+  // »078, del 150« je seznam kontov iz dodatnih podatkov, ne vrstica obrazca.
+  if (/^\d{3}[a-z]?\s*,/i.test(line)) return []
   const rest = line.slice(start[0].length)
   const trailing = rest.match(new RegExp(`(${amount})(?:\\s+(${amount}))?\\s*$`, "i"))
-  if (!trailing?.[1]) return []
+  if (!trailing?.[1] || trailing.index === undefined) return []
+  const before = rest.slice(0, trailing.index).trimEnd()
+  // Znesek pripada oznaki, ki stoji tik pred njim, na primer 302, ne začetni 002.
+  if (/(?:^|\s)\d{3}[a-z]?\s*$/i.test(before)) return []
   const row = rowFrom(start[1], [trailing[1], trailing[2]], currentFirst)
   return row ? [row] : []
 }

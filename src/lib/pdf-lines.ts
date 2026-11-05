@@ -54,8 +54,7 @@ function rowsToText(items: TextItem[]): string {
 
   return rows
     .map((row) =>
-      row.parts
-        .sort((a, b) => a.x - b.x)
+      collapseOverlays(row.parts)
         .map((part) => part.str)
         .join(" ")
         .replace(/\s+/g, " ")
@@ -63,4 +62,18 @@ function rowsToText(items: TextItem[]): string {
     )
     .filter(Boolean)
     .join("\n")
+}
+
+/**
+ * Izdelan obrazec AJPES isto besedo nariše večkrat, skoraj na istem mestu.
+ * Brez tega se znesek tekočega leta prebere štirikrat in lanski stolpec izgine.
+ */
+function collapseOverlays(parts: { x: number; str: string }[]): { x: number; str: string }[] {
+  const sorted = [...parts].sort((a, b) => a.x - b.x)
+  const kept: { x: number; str: string }[] = []
+  for (const part of sorted) {
+    const overlay = kept.some((item) => item.str === part.str && Math.abs(item.x - part.x) < 2)
+    if (!overlay) kept.push(part)
+  }
+  return kept
 }

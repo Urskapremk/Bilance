@@ -1,0 +1,19 @@
+Pojasnila k izkazom
+Prihodki so se glede na preteklo leto znižali.
+Čisti dobiček tekočega leta je ostal v družbi.
+
+PODATKI IZ BILANCE STANJA
+na dan 31.12.2025
+v EUR s centi
+Konto Postavka Oznaka za AOP Znesek
+Tekočega leta Prejšnjega leta
+1 2 3 4 5
+SREDSTVA 001 10.000,00 8.000,00
+V. Denarna sredstva 052 10.000,00 8.000,00
+OBVEZNOSTI DO VIROV SREDSTEV 055 10.000,00 8.000,00
+1. Osnovni kapital 058 10.000,00 8.000,00
+
+PODATKI IZ IZKAZA POSLOVNEGA IZIDA
+Tekočega leta Prejšnjega leta
+1. Čisti prihodki od prodaje proizvodov in storitev razen najemnin 112 8.000,00 7.000,00
+1. Stroški plač 140 3.000,00 2.500,00
