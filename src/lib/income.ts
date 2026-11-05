@@ -135,6 +135,11 @@ const FORMULA_ORDER = [
   "178",
 ]
 
+/** Seštevki in poslovni izid, od podpostavk proti vsoti. Listi niso na seznamu. */
+export function incomeCalculatedOrder(): string[] {
+  return [...FORMULA_ORDER, "151", "152", "182", "183", "186", "187"]
+}
+
 const SP_FORMULAS: Record<string, Formula> = { ...FORMULAS, "148": { add: ["148a", "148b"] } }
 
 const SP_LABELS: Record<string, string> = {

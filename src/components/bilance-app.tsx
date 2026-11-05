@@ -30,6 +30,7 @@ import {
   type ArchiveMeta,
 } from "@/lib/archive"
 import { comparePeriodDesc, emptyPeriodStatement, periodCountLabel, previousFullYear } from "@/lib/archive-period"
+import { ajpesUploadBlocked } from "@/lib/ajpes-form"
 import { attachPublicFiling } from "@/lib/ajpes-public"
 import { dhApplicationName, dhWorkbookName, hasDhBankPack } from "@/lib/bank-form"
 import { DISCLOSURE_BANKS, disclosureWorkbookName, type DisclosureBankId } from "@/lib/razkritja"
@@ -100,6 +101,7 @@ export function BilanceApp() {
   const [pdfName, setPdfName] = useState(initialStatement.sourceName)
   const [linked, setLinked] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [ajpesBusy, setAjpesBusy] = useState(false)
   const [cardBusy, setCardBusy] = useState(false)
   const [taxBusy, setTaxBusy] = useState(false)
   const [recalcBusy, setRecalcBusy] = useState(false)
@@ -138,6 +140,7 @@ export function BilanceApp() {
   const [addingPeriod, setAddingPeriod] = useState(false)
   const [checks, setChecks] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
+  const ajpesInputRef = useRef<HTMLInputElement>(null)
   const cardInputRef = useRef<HTMLInputElement>(null)
   const taxInputRef = useRef<HTMLInputElement>(null)
   const newFileRef = useRef<HTMLInputElement>(null)
@@ -943,6 +946,112 @@ export function BilanceApp() {
     inputRef.current?.click()
   }
 
+  function chooseAjpes() {
+    ajpesInputRef.current?.click()
+  }
+
+  async function combinePdfs(parts: ArrayBuffer[]): Promise<ArrayBuffer> {
+    const first = parts[0]
+    if (!first) return new ArrayBuffer(0)
+    if (parts.length === 1) return first.slice(0)
+    const { PDFDocument } = await import("pdf-lib")
+    const out = await PDFDocument.create()
+    for (const part of parts) {
+      const src = await PDFDocument.load(part)
+      const pages = await out.copyPages(src, src.getPageIndices())
+      for (const page of pages) out.addPage(page)
+    }
+    const bytes = await out.save()
+    const copy = new ArrayBuffer(bytes.byteLength)
+    new Uint8Array(copy).set(bytes)
+    return copy
+  }
+
+  async function loadAjpes(list: FileList | File[]) {
+    const files = [...list].filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))
+    if (!files.length) {
+      setError("Dodajte datoteko PDF.")
+      return
+    }
+    const current = statementRef.current
+    if (!splitPeriod(current.period)) {
+      setError("Najprej vpišite Od in Do, na primer 1. 1. 2025 in 31. 12. 2025.")
+      return
+    }
+    if (ajpesUploadBlocked(current, archiveItems, phaseRef.current)) {
+      setError(
+        "To obdobje je že shranjeno. Kliknite Dodaj bilanco za drugo obdobje, vpišite Od in Do, nato naložite izdelan AJPES. Shranjeno obdobje ostane.",
+      )
+      return
+    }
+    setAjpesBusy(true)
+    setError(null)
+    try {
+      const body = new FormData()
+      for (const file of files) body.append("file", file)
+      body.set("statement", JSON.stringify(current))
+      const response = await fetch("/api/ajpes-obrazec", { method: "POST", body })
+      const data = (await response.json().catch(() => null)) as { statement?: Statement; error?: string } | null
+      if (!response.ok || !data?.statement?.company) {
+        throw new Error(data?.error ?? "Izdelanega obrazca AJPES ni bilo mogoče prebrati.")
+      }
+      const named = statementForClient(data.statement, current.company || data.statement.company)
+      const previous = current.sourceKind === "ajpes" ? openPdf() : null
+      const chunks: ArrayBuffer[] = []
+      if (previous) chunks.push(previous.slice(0))
+      for (const file of files) chunks.push(await file.arrayBuffer())
+      const pdf = await combinePdfs(chunks)
+      const draft = { statement: named, pdf }
+      draftRef.current = draft
+      fileRef.current = files[0] ?? null
+      textRef.current = ""
+      phaseRef.current = "osnutek"
+      clearArchive()
+      markFresh(false)
+      pendingPeriods.current.delete(clientKey(named.company))
+      cacheWorkspace({
+        statement: named,
+        pdf,
+        pdfName: named.sourceName,
+        phase: "osnutek",
+        konti: [],
+        besedilo: "",
+      })
+      statementRef.current = named
+      setStatement(named)
+      setActiveClient(named.company)
+      setKonti([])
+      setBlank(false)
+      setLinked(true)
+      setPhase("osnutek")
+      setSavedMeta(null)
+      setSaveError(null)
+      setSaveAsk(false)
+      setFormulaOpen(false)
+      showPdf(URL.createObjectURL(new Blob([pdf], { type: "application/pdf" })), named.sourceName)
+      showView("bilanca")
+      try {
+        await rememberStoredClient(named.company, named.legalForm)
+        await saveDraft(named.company, {
+          statement: named,
+          pdf,
+          pdfName: named.sourceName,
+          konti: [],
+          besedilo: "",
+        })
+      } catch {
+        setError("Bilanca je prebrana, baze stranke pa ni bilo mogoče zapisati.")
+      }
+      void rememberClientName(named.company)
+        .then(() => refreshClients())
+        .catch(() => setClients((items) => mergeClients([...items, named.company])))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Izdelanega obrazca AJPES ni bilo mogoče prebrati.")
+    } finally {
+      setAjpesBusy(false)
+    }
+  }
+
   async function openAccountRules() {
     const company = activeClientRef.current
     try {
@@ -1420,7 +1529,7 @@ export function BilanceApp() {
           {showZeros ? "Skrij prazne postavke" : "Prikaži celotno shemo AJPES"}
         </button>
         {phase !== "primer" && !blank ? (
-          <Button type="button" onClick={askToSave} disabled={savingArchive || busy}>
+          <Button type="button" onClick={askToSave} disabled={savingArchive || busy || ajpesBusy}>
             <Save />
             Shrani
           </Button>
@@ -1520,8 +1629,8 @@ export function BilanceApp() {
               </h1>
               <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
                 {freshPeriod
-                  ? "To je prazna bilanca za drugo obdobje. Shranjena obdobja ostanejo. Vpišite Od in Do, nato dodajte PDF bruto bilance. Razkritja se napolnijo iz te bilance, ko je naložena."
-                  : `Za stranko ${activeClient} še ni bruto bilance. Dodajte PDF v stolpcu desno, pa se iz njega sestavita bilanca stanja in izkaz poslovnega izida.`}
+                  ? "To je prazna bilanca za drugo obdobje. Shranjena obdobja ostanejo. Vpišite Od in Do, nato naložite izdelan obrazec AJPES. Razkritja se napolnijo iz te bilance."
+                  : `Za stranko ${activeClient} še ni bilance. V stolpcu desno naložite izdelan obrazec AJPES ali PDF bruto bilance.`}
               </p>
               {freshPeriod ? (
                 <div className="mx-auto mt-6 max-w-xl text-left">
@@ -1533,17 +1642,27 @@ export function BilanceApp() {
                   />
                   {statement.period ? (
                     <p className="mt-3 text-sm text-muted-foreground">
-                      Vpisano obdobje je {statement.period}. Datuma lahko spremenite, preden dodate PDF.
+                      Vpisano obdobje je {statement.period}. Datuma lahko spremenite, preden naložite obrazec.
                     </p>
                   ) : (
                     <p className="mt-3 text-sm text-muted-foreground">Vpišite Od in Do, na primer 1. 1. 2025 in 31. 12. 2025.</p>
                   )}
                 </div>
               ) : null}
-              <Button type="button" className="mt-8" onClick={() => choosePdf(activeClient)} disabled={busy}>
-                <FileUp />
-                {busy ? "Berem konte…" : "Dodaj PDF"}
-              </Button>
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+                <Button type="button" onClick={chooseAjpes} disabled={busy || ajpesBusy}>
+                  <FileUp />
+                  {ajpesBusy ? "Berem obrazec…" : "Naloži izdelan AJPES"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => choosePdf(activeClient)} disabled={busy || ajpesBusy}>
+                  <FileUp />
+                  {busy ? "Berem konte…" : "Dodaj PDF"}
+                </Button>
+              </div>
+              <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">
+                Izdelan obrazec AJPES je bilanca stanja in izkaz poslovnega izida. Izberete lahko eno datoteko, če sta
+                oba obrazca skupaj, ali dve.
+              </p>
               {freshPeriod && sameClient(activeClient, SAMPLE_CLIENT) ? (
                 <Button type="button" variant="outline" className="mt-3" onClick={restoreSample}>
                   Odpri vzorčno bilanco
@@ -1600,21 +1719,25 @@ export function BilanceApp() {
                 Zamenjaj
               </Button>
             </div>
-            <p className="mt-4 text-xs font-medium tracking-[0.2em] text-gold uppercase">Bruto bilanca</p>
+            <p className="mt-4 text-xs font-medium tracking-[0.2em] text-gold uppercase">
+              {!blank && statement.sourceKind === "ajpes" ? "Izdelan obrazec AJPES" : "Bruto bilanca"}
+            </p>
             <p className="mt-2 truncate text-sm text-muted-foreground" title={blank ? undefined : pdfName}>
               {blank ? "Še ni dodane." : pdfName}
             </p>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {blank
                 ? freshPeriod
-                  ? "Prazna bilanca za drugo obdobje. Od in Do vpišite na levi, PDF dodate tukaj. Shranjena obdobja odprete pri datumih."
-                  : "Nova stranka čaka na svojo bruto bilanco. Dodajte PDF ali jo ustvarite z Nova stranka."
+                  ? "Prazna bilanca za drugo obdobje. Od in Do vpišite na levi. Izdelan obrazec AJPES naložite tukaj. Shranjena obdobja odprete pri datumih."
+                  : "Nova stranka čaka na bilanco. Naložite izdelan obrazec AJPES ali jo ustvarite z Nova stranka."
                 : linked
-                  ? phase === "arhiv"
-                    ? "Shranjeno obdobje. Znesek tekočega leta popravite v vrstici. Shrani zapiše to bilanco. Drugo obdobje dodate pri datumih, to obdobje ostane."
-                    : phase === "osnutek"
-                      ? "Bilanca je naložena. Najprej jo preglejte. Drugo obdobje dodate pri datumih. Shrani zapiše to obdobje. Za isto Od in Do ostane zadnja shranjena bilanca."
-                      : "Obrazec je sestavljen iz tega izpisa. Popravek zneska v tekočem letu se na njem pokaže takoj."
+                  ? statement.sourceKind === "ajpes"
+                    ? "Izdelan obrazec AJPES je naložen za to obdobje. Zneski so prebrani iz njega. Shrani zapiše to obdobje na svojo kartico. Drugo obdobje ostane shranjeno."
+                    : phase === "arhiv"
+                      ? "Shranjeno obdobje. Znesek tekočega leta popravite v vrstici. Shrani zapiše to bilanco. Drugo obdobje dodate pri datumih, to obdobje ostane."
+                      : phase === "osnutek"
+                        ? "Bilanca je naložena. Najprej jo preglejte. Drugo obdobje dodate pri datumih. Shrani zapiše to obdobje. Za isto Od in Do ostane zadnja shranjena bilanca."
+                        : "Obrazec je sestavljen iz tega izpisa. Popravek zneska v tekočem letu se na njem pokaže takoj."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
             <input
@@ -1627,6 +1750,18 @@ export function BilanceApp() {
                 const company = uploadClientRef.current ?? (blank ? activeClient : undefined)
                 uploadClientRef.current = null
                 if (file) void loadFile(file, company ?? undefined)
+                event.target.value = ""
+              }}
+            />
+            <input
+              ref={ajpesInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              multiple
+              className="sr-only"
+              onChange={(event) => {
+                const files = event.target.files
+                if (files?.length) void loadAjpes(files)
                 event.target.value = ""
               }}
             />
@@ -1656,10 +1791,18 @@ export function BilanceApp() {
               <Button
                 type="button"
                 onClick={() => choosePdf(blank ? activeClient : undefined)}
-                disabled={busy || cardBusy || taxBusy || recalcBusy || savingArchive || creatingClient}
+                disabled={busy || ajpesBusy || cardBusy || taxBusy || recalcBusy || savingArchive || creatingClient}
               >
                 <FileUp />
                 {busy ? "Berem konte…" : "Dodaj PDF"}
+              </Button>
+              <Button
+                type="button"
+                onClick={chooseAjpes}
+                disabled={busy || ajpesBusy || cardBusy || taxBusy || recalcBusy || savingArchive || creatingClient}
+              >
+                <FileUp />
+                {ajpesBusy ? "Berem obrazec…" : "Naloži izdelan AJPES"}
               </Button>
               {!blank && legalFormOf(statement) === "sp" ? (
                 <Button
@@ -1720,7 +1863,7 @@ export function BilanceApp() {
                   type="button"
                   variant="outline"
                   onClick={() => void addAnotherPeriod()}
-                  disabled={addingPeriod || busy || savingArchive}
+                  disabled={addingPeriod || busy || ajpesBusy || savingArchive}
                 >
                   {addingPeriod ? "Shranjujem to obdobje…" : "Dodaj bilanco za drugo obdobje"}
                 </Button>
@@ -1748,7 +1891,7 @@ export function BilanceApp() {
                   <Button
                     type="button"
                     onClick={() => void downloadDisclosures()}
-                    disabled={exporting !== null || busy || blank}
+                    disabled={exporting !== null || busy || ajpesBusy || blank}
                   >
                     <FileSpreadsheet />
                     {exporting === "razkritja" ? "Pripravljam razkritja…" : "Razkritja"}
@@ -1756,7 +1899,7 @@ export function BilanceApp() {
                   {blank ? (
                     <p className="text-sm text-muted-foreground">
                       {freshPeriod
-                        ? "Razkritja se napolnijo, ko je bruto bilanca tega obdobja naložena."
+                        ? "Razkritja se napolnijo, ko je bilanca tega obdobja naložena."
                         : "Najprej odprite bilanco."}
                     </p>
                   ) : (
@@ -1808,7 +1951,10 @@ export function BilanceApp() {
               Bruto bilanca za {activeClient} se pokaže tukaj, ko dodate PDF.
             </div>
           ) : (
-            <PdfPreview url={pdfUrl} title={`Bruto bilanca ${pdfName}`} />
+            <PdfPreview
+              url={pdfUrl}
+              title={statement.sourceKind === "ajpes" ? `Obrazec AJPES ${pdfName}` : `Bruto bilanca ${pdfName}`}
+            />
           )}
         </aside>
       </div>

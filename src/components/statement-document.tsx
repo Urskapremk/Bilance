@@ -108,8 +108,9 @@ export function StatementDocument({
           />
         ) : null}
         <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-muted-foreground md:text-lg print:mt-2 print:text-[12px] print:leading-snug">
-          Sestavljeno iz bruto bilance {statement.company}. Shema in oznake AOP so po obrazcu AJPES za{" "}
-          {scheme.scheme}.
+          {statement.sourceKind === "ajpes"
+            ? `Sestavljeno iz izdelanega obrazca AJPES za ${statement.company}. Shema in oznake AOP so po obrazcu AJPES za ${scheme.scheme}.`
+            : `Sestavljeno iz bruto bilance ${statement.company}. Shema in oznake AOP so po obrazcu AJPES za ${scheme.scheme}.`}
         </p>
       </div>
 
@@ -672,8 +673,8 @@ export function PeriodFields({
       </div>
       {onAddPeriod ? (
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-          To obdobje ostane shranjeno. Odpre se prazna bilanca iste stranke. Vanjo vpišete Od in Do in dodate bruto
-          bilanco tega obdobja. Razkritja se nato napolnijo iz te odprte bilance.
+          To obdobje ostane shranjeno. Odpre se prazna bilanca iste stranke. Vanjo vpišete Od in Do in naložite izdelan
+          obrazec AJPES ali bruto bilanco. Razkritja se nato napolnijo iz te odprte bilance.
         </p>
       ) : null}
       <SavedPeriodList items={savedPeriods} openPeriodId={openPeriodId} onOpen={onOpenPeriod} />

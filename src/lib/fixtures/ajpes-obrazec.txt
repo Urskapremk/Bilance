@@ -1,0 +1,219 @@
+Obdobje poročanja od: 01.01.2025
+Obdobje poročanja do: 31.12.2025
+
+PODATKI IZ BILANCE STANJA
+na dan 31.12.2025
+v EUR s centi
+Znesek
+Oznaka za
+Konto Postavka
+AOP Tekočega leta Prejšnjega leta
+1 2 3 4 5
+00, 01, 02, 03, 04, 05, 06, 07,
+08, 09, 10, 11, 12, 13, 14, 15,
+SREDSTVA (002+032+053) 001 405.750,75 263.426,78
+16, 17, 18, 19, 30, 31, 32, 60,
+61, 63, 65, 66, 67
+00, 01, 02, 03, 04, 05, 06, del DOLGOROČNA SREDSTVA
+A. 002 155.774,89 119.593,07
+07, del 08, 09, del 13 (003+010+018+019+027+031)
+Neopredmetena sredstva in dolgoročne aktivne
+del 00, del 08, del 13 I. 003 0,00 0,00
+časovne razmejitve (004+009)
+del 00, del 08, del 13 1. Neopredmetena sredstva 004 0,00 0,00
+del 00 2. Dolgoročne aktivne časovne razmejitve 009 0,00 0,00
+del 00, 02, 03, 04, 05, del 08,
+II. Opredmetena osnovna sredstva (011 do 017) 010 0,00 200,99
+del 13
+del 00, del 02, del 03 1. Zemljišča 011 0,00 0,00
+del 00, del 02, del 03 2. Zgradbe 012 0,00 0,00
+del 04, del 05 3. Proizvajalne naprave in stroji 013 0,00 0,00
+Druge naprave in oprema, drobni inventar in druga
+del 04, del 05 4. 014 0,00 200,99
+opredmetena osnovna sredstva
+del 04, del 05 5. Biološka sredstva 015 0,00 0,00
+del 02, del 04 6. Opredmetena osnovna sredstva v gradnji in izdelavi 016 0,00 0,00
+del 08, del 13 7. Predujmi za pridobitev opredmetenih osnovnih sredstev 017 0,00 0,00
+01 III. Naložbene nepremičnine 018 0,00 0,00
+06, del 07 IV. Dolgoročne finančne naložbe (020+024) 019 0,00 0,00
+06 1. Dolgoročne finančne naložbe, razen posojil 020 0,00 0,00
+del 07 2. Dolgoročna posojila 024 0,00 0,00
+del 08 V. Dolgoročne poslovne terjatve 027 155.774,89 119.392,08
+09 VI. Odložene terjatve za davek 031 0,00 0,00
+del 07, del 08, 10, 11, 12, del
+13, 14, 15, 16, 17, 18, 30, 31, B. KRATKOROČNA SREDSTVA (033+034+040+048+052) 032 249.702,95 87.778,55
+32, 60, 61, 63, 65, 66, 67
+67 I. Sredstva (skupine za odtujitev) za prodajo 033 0,00 0,00
+del 13, 30, 31, 32, 60, 61, 63,
+II. Zaloge (035 do 039) 034 1.100,27 1.100,27
+65, 66
+30, 31, 32 1. Material 035 0,00 0,00
+60 2. Nedokončana proizvodnja 036 0,00 0,00
+61, 63 3. Proizvodi 037 0,00 0,00
+65, 66 4. Trgovsko blago 038 1.100,27 1.100,27
+del 13 5. Predujmi za zaloge 039 0,00 0,00
+BS 2 / 7
+Znesek
+Oznaka za
+Konto Postavka
+AOP Tekočega leta Prejšnjega leta
+1 2 3 4 5
+del 07, 17, 18 III. Kratkoročne finančne naložbe (041+045) 040 0,00 0,00
+17 1. Kratkoročne finančne naložbe, razen posojil 041 0,00 0,00
+del 07, 18 2. Kratkoročna posojila 045 0,00 0,00
+del 08, 12, del 13, 14, 15, 16 IV. Kratkoročne poslovne terjatve 048 133.475,43 55.418,74
+10, 11 V. Denarna sredstva 052 115.127,25 31.259,54
+19 C. KRATKOROČNE AKTIVNE ČASOVNE RAZMEJITVE 053 272,91 56.055,16
+del 99 Zunajbilančna sredstva 054 0,00 0,00
+21, 22, 23, 24, 25, 26, 27, 28, OBVEZNOSTI DO VIROV SREDSTEV
+055 405.750,75 263.426,78
+29, 90, 92, 93, 95, 96, 97, 98 (056+072+075+085+095)
+LASTNI VIRI
+90, 92, 93, 95 A. 056 31.131,71 4.981,04
+(056a+301+068-069+070-071)
+del 90 I. Ustanovitveni vložek 056a 180,00 180,00
+Rezerve, nastale zaradi vrednotenja po pošteni
+95 II. 301 0,00 0,00
+vrednosti
+92, del 93 III. Nerazporejeni čisti presežek prihodkov 068 4.801,04 94.602,51
+del 93 IV. Nerazporejeni čisti presežek odhodkov 069 0,00 0,00
+del 93 V. Čisti presežek prihodkov poslovnega leta 070 26.150,67 0,00
+del 93 VI. Čisti presežek odhodkov poslovnega leta 071 0,00 89.801,47
+REZERVACIJE IN DOLGOROČNE PASIVNE ČASOVNE
+96 B. 072 0,00 0,00
+RAZMEJITVE (073+074)
+del 96 1. Rezervacije 073 0,00 0,00
+del 96 2. Dolgoročne pasivne časovne razmejitve 074 0,00 0,00
+DOLGOROČNE OBVEZNOSTI
+del 97, del 98 C. 075 105.000,00 0,00
+(076+080+084)
+del 97 I. Dolgoročne finančne obveznosti 076 0,00 0,00
+del 98 II. Dolgoročne poslovne obveznosti 080 105.000,00 0,00
+del 98 III. Odložene obveznosti za davek 084 0,00 0,00
+21, 22, 23, 24, 25, 26, 27, 28, KRATKOROČNE OBVEZNOSTI
+Č. 085 51.272,94 105.552,22
+del 97, del 98 (086+087+091)
+21 I. Obveznosti, vključene v skupine za odtujitev 086 0,00 0,00
+27, del 97 II. Kratkoročne finančne obveznosti 087 0,00 0,00
+22, 23, 24, 25, 26, 28, del 98 III. Kratkoročne poslovne obveznosti 091 51.272,94 105.552,22
+29 D. KRATKOROČNE PASIVNE ČASOVNE RAZMEJITVE 095 218.346,10 152.893,52
+del 99 Zunajbilančne obveznosti 096 0,00 0,00
+BS 3 / 7
+PODATKI IZ IZKAZA POSLOVNEGA IZIDA
+v obdobju od 1.1. do 31.12.2025
+v EUR s centi
+Znesek
+Konto Postavka Oznaka
+za AOP Tekočega leta Prejšnjega leta
+1 2 3 4 5
+del 76 A. ČISTI PRIHODKI OD PRODAJE 110 76.632,27 94.237,56
+POVEČANJE VREDNOSTI ZALOG PROIZVODOV IN NEDOKONČANE
+60, del 61, 63 B. 121 0,00 0,00
+PROIZVODNJE
+ZMANJŠANJE VREDNOSTI ZALOG PROIZVODOV IN NEDOKONČANE
+60, del 61, 63 C. 122 0,00 0,00
+PROIZVODNJE
+79 Č. USREDSTVENI LASTNI PROIZVODI IN LASTNE STORITVE 123 0,00 0,00
+SUBVENCIJE, DOTACIJE, REGRESI, KOMPENZACIJE IN DRUGI PRIHODKI,
+del 76 D. 124 315.004,61 285.102,12
+KI SO POVEZANI S POSLOVNIMI UČINKI
+del 76 E. DRUGI POSLOVNI PRIHODKI 125 0,00 0,00
+60, 61, 63, 76,
+F. KOSMATI DONOS OD POSLOVANJA (110+121-122+123+124+125) 126 391.636,88 379.339,68
+79
+40, 41, 43, 44,
+47, 48, del 70, G. POSLOVNI ODHODKI (128+139+144+148) 127 365.526,71 479.342,47
+72
+40, 41, del 70 I. Stroški blaga, materiala in storitev (129+130+134) 128 121.858,89 154.018,09
+del 70 1. Nabavna vrednost prodanega blaga in materiala 129 0,00 0,00
+40 2. Stroški porabljenega materiala 130 865,64 1.039,84
+41 3. Stroški storitev 134 120.993,25 152.978,25
+47 II. Stroški dela (140 do 143) 139 242.772,45 260.745,88
+del 47 1. Stroški plač 140 180.042,14 201.433,93
+del 47 2. Stroški pokojninskih zavarovanj 141 16.168,41 17.864,96
+del 47 3. Stroški drugih socialnih zavarovanj 142 14.096,07 14.625,30
+del 47 4. Drugi stroški dela 143 32.465,83 26.821,69
+43, 72 III. Odpisi vrednosti (145 do 147) 144 200,99 272,00
+43 1. Amortizacija 145 200,99 272,00
+Prevrednotovalni poslovni odhodki pri neopredmetenih sredstvih in opredmetenih
+del 72 2. 146 0,00 0,00
+osnovnih sredstvih
+del 72 3. Prevrednotovalni poslovni odhodki pri obratnih sredstvih 147 0,00 0,00
+44, 48 IV. Drugi poslovni odhodki (149+150) 148 694,38 64.306,50
+44 1. Rezervacije 149 0,00 0,00
+48 2. Drugi stroški 150 694,38 64.306,50
+60, 61, 63, 76,
+79, 40, 41, 43,
+H. PRESEŽEK POSLOVNIH PRIHODKOV (126-127) 151 26.110,17 0,00
+44, 47, 48, del
+70, 72
+60, 61, 63, 76,
+79, 40, 41, 43,
+I. PRESEŽEK POSLOVNIH ODHODKOV (127-126) 152 0,00 100.002,79
+44, 47, 48, del
+70, 72
+77 J. FINANČNI PRIHODKI (155+160+163) 153 0,10 0,00
+IPI 4 / 7
+Znesek
+Konto Postavka Oznaka
+za AOP Tekočega leta Prejšnjega leta
+1 2 3 4 5
+del 77 I. Finančni prihodki iz deležev 155 0,00 0,00
+del 77 II. Finančni prihodki iz danih posojil 160 0,00 0,00
+del 77 III. Finančni prihodki iz poslovnih terjatev 163 0,10 0,00
+74 K. FINANČNI ODHODKI (168+169+174) 166 0,00 0,97
+del 74 I. Finančni odhodki iz oslabitve in odpisov finančnih naložb 168 0,00 0,00
+del 74 II. Finančni odhodki iz finančnih obveznosti 169 0,00 0,00
+del 74 III. Finančni odhodki iz poslovnih obveznosti 174 0,00 0,97
+78 L. DRUGI PRIHODKI 178 744,52 10.215,85
+75 M. DRUGI ODHODKI 181 17,10 13,56
+80 N. PRESEŽEK PRIHODKOV (151-152+153-166+178-181) 182 26.837,69 0,00
+80 O. PRESEŽEK ODHODKOV (152-151-153+166-178+181) 183 0,00 89.801,47
+del 81 P. DAVEK OD DOHODKOV 184 687,02 0,00
+del 81 R. ODLOŽENI DAVKI 185 0,00 0,00
+ČISTI PRESEŽEK PRIHODKOV OBRAČUNSKEGA OBDOBJA
+del 81 S. 186 26.150,67 0,00
+(182-184-185)
+ČISTI PRESEŽEK ODHODKOV OBRAČUNSKEGA OBDOBJA
+89 Š. 187 0,00 89.801,47
+(183+184+185 oz. 184-182+185)
+*POVPREČNO ŠTEVILO ZAPOSLENIH NA PODLAGI DELOVNIH UR V
+188 6,00 6,92
+OBRAČUNSKEM OBDOBJU (na dve decimalki)
+ŠTEVILO MESECEV POSLOVANJA 189 12 12
+Izračunana povprečna plača na
+2.500,59 €
+zaposlenega delavca -->
+Opomba:
+*Izračun podatka na AOP 188: Število delovnih ur v koledarskem (obračunskem) letu, za katere so zaposleni dobili plačo in nadomestilo plače / (deljeno) s številom
+možnih delovnih ur za koledarsko (obračunsko) leto (glej Vsebinska pogosta vprašanja ).
+IPI 5 / 7
+DODATNI PODATKI K IZKAZU POSLOVNEGA IZIDA
+v obdobju od 1.1. do 31.12.2025
+v EUR s centi
+Znesek
+Oznaka
+Konto Postavka
+za AOP Tekočega leta Prejšnjega leta
+1 2 3 4 5
+del 60, del 61, del POSLOVNI PRIHODKI OD OPRAVLJANJA DEJAVNOSTI
+A. 501 0,00 0,00
+63, del 76 NEGOSPODARSKIH JAVNIH SLUŽB (502+503+504-505)
+del 76 1. Prihodki iz sredstev javnih financ 502 0,00 0,00
+del 76 2. Drugi prihodki od opravljanja dejavnosti negospodarskih javnih služb 503 0,00 0,00
+del 60, del 61, del
+3. Povečanje vrednosti zalog proizvodov in nedokončane proizvodnje 504 0,00 0,00
+63
+del 60, del 61, del
+4. Zmanjšanje vrednosti zalog proizvodov in nedokončane proizvodnje 505 0,00 0,00
+63
+del 60, del 61, del POSLOVNI PRIHODKI OD OPRAVLJANJA LASTNE DEJAVNOSTI
+B. 506 391.636,88 379.339,68
+63, del 76, 79 (507+508-509)
+del 76, 79 1. Poslovni prihodki od opravljanja lastne dejavnosti 507 391.636,88 379.339,68
+del 60, del 61, del
+2. Povečanje vrednosti zalog proizvodov in nedokončane proizvodnje 508 0,00 0,00
+63
+del 60, del 61, del
+3. Zmanjšanje vrednosti zalog proizvodov in nedokončane proizvodnje 509 0,00 0,00
+63

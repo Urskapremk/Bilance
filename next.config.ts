@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfjs-dist"],
   outputFileTracingIncludes: {
     "/api/bruto-bilanca": ["./public/sources/**", "./node_modules/pdfjs-dist/legacy/build/**"],
+    "/api/ajpes-obrazec": ["./node_modules/pdfjs-dist/legacy/build/**"],
     "/api/pdf": ["./src/lib/fonts/**"],
     "/api/obrazec-dh": ["./data/templates/dh/**"],
     "/api/obrazec-dh/vloga": ["./data/templates/dh/**", "./src/lib/fonts/**"],

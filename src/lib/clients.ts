@@ -55,5 +55,7 @@ export function statementForClient(statement: Statement, company: string): State
     legalForm: statement.legalForm,
     ekartica: statement.ekartica,
     davcni: statement.davcni,
+    previousIncome: statement.previousIncome,
+    sourceKind: statement.sourceKind,
   })
 }

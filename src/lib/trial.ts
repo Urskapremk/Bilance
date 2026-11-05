@@ -28,6 +28,10 @@ export type Statement = {
   /** Javna objava AJPES za primerjalni stolpec, kadar je za družbo na voljo. */
   publicPrevious?: PublicFiling
   income: Record<string, number>
+  /** Primerjalni stolpec izkaza. Samo kadar ga ima naloženi obrazec AJPES. */
+  previousIncome?: Record<string, number>
+  /** ajpes: zneski so prebrani iz izdelanega obrazca, ne iz bruto bilance. */
+  sourceKind?: "ajpes"
   notes: string[]
   warnings: string[]
   /** Izbrani podpis na dnu obrazca. */
