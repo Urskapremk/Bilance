@@ -16,6 +16,7 @@ const nextConfig: NextConfig = {
       "./node_modules/regenerator-runtime/**",
       "./node_modules/is-url/**",
       "./node_modules/is-electron/**",
+      "./node_modules/bmp-js/**",
     ],
     "/api/starost": [
       "./data/tessdata/**",
@@ -24,6 +25,7 @@ const nextConfig: NextConfig = {
       "./node_modules/regenerator-runtime/**",
       "./node_modules/is-url/**",
       "./node_modules/is-electron/**",
+      "./node_modules/bmp-js/**",
     ],
     "/api/razkritja": ["./data/templates/dh/**"],
   },

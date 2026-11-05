@@ -30,8 +30,10 @@ export async function POST(request: Request) {
     const rows = await withOcrDeadline(parseAgingImage(new Uint8Array(await file.arrayBuffer()), kind))
     return Response.json({ rows })
   } catch (error) {
+    console.error(error)
     const message =
-      error instanceof AgingTableError || (error instanceof Error && /končalo|poskusite/i.test(error.message))
+      error instanceof AgingTableError ||
+      (error instanceof Error && /končalo|poskusite|strežniku|ni uspelo/i.test(error.message))
         ? error.message
         : "Tabele na sliki ni bilo mogoče prebrati."
     return Response.json({ error: message }, { status: 422 })

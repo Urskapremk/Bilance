@@ -107,11 +107,11 @@ type Engine = {
 let chain: Promise<unknown> = Promise.resolve()
 const engines = new Map<string, Engine>()
 
-function loadCore(): unknown {
+function loadFactory(file: string): ((options: unknown) => Promise<unknown>) | null {
   try {
-    return require(CORE_FILE)
+    return require(file) as (options: unknown) => Promise<unknown>
   } catch {
-    return require(CORE_FALLBACK)
+    return null
   }
 }
 
@@ -136,7 +136,24 @@ function engineFor(langs: string): Engine {
     },
     getCore: async (_lstmOnly: boolean, _corePath: string, res: { progress?: (status: unknown) => void }) => {
       res.progress?.({ status: "loading tesseract core", progress: 1 })
-      return loadCore()
+      const primary = loadFactory(CORE_FILE) ?? loadFactory(CORE_FALLBACK)
+      const secondary = loadFactory(CORE_FALLBACK)
+      if (!primary) throw new Error("Bralnik besedila ni na strežniku.")
+      return (options: unknown) =>
+        new Promise((resolve, reject) => {
+          const run = (
+            factory: (options: unknown) => Promise<unknown>,
+            next?: ((options: unknown) => Promise<unknown>) | null,
+          ) => {
+            Promise.resolve()
+              .then(() => factory(options))
+              .then(resolve, () => {
+                if (next && next !== factory) run(next, null)
+                else reject(new Error("Branje posnetka ni uspelo."))
+              })
+          }
+          run(primary, secondary)
+        })
     },
   })
   const created = { langs, worker, started: false, jobSeq: 0 }

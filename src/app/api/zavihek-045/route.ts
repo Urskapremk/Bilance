@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error(error)
     const message =
-      error instanceof Error && /končalo|poskusite/i.test(error.message)
+      error instanceof Error && /končalo|poskusite|strežniku|ni uspelo/i.test(error.message)
         ? error.message
         : "Tabele na posnetku ni bilo mogoče prebrati."
     return Response.json({ error: message }, { status: 422 })
