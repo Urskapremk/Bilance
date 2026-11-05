@@ -3,8 +3,11 @@ import { civilDate, excelSerial } from "@/lib/bank-form"
 import { clientKey } from "@/lib/clients"
 import { parseCents, parseSloveneDate } from "@/lib/format"
 
-/** List 045 v predlogi razkritij Delavske hranilnice. */
+/** List 045 v predlogi razkritij: KRATKOROČNO DANA POSOJILA. */
 export const SHEET_045 = "045 Krat.posojila"
+
+/** List 076 v predlogi razkritij: DOLGOROČNE FINANČNE OBVEZNOSTI. */
+export const SHEET_076 = "076 Dolg.fin.obvez."
 
 /** Predloga ima deset imenskih vrstic. Enajsta je OSTALI. */
 export const LOAN_045_NAME_SLOTS = 10
@@ -107,23 +110,39 @@ export function layoutLoan045(lines: readonly LoanAnalyticalLine[]): Placed {
   return { named: visible, ostali: sumLines(merged) }
 }
 
-/** Analitične vrstice v celice lista 045. Prazna polja se ne zapišejo. Formule za končno stanje in delež ostanejo, kadar znesek sledi iz njih. */
-export function loan045Cells(lines: readonly LoanAnalyticalLine[]): BankCell[] {
+/** Analitične vrstice v celice lista. Prazna polja se ne zapišejo. Formule za končno stanje in delež ostanejo, kadar znesek sledi iz njih. */
+export function loanSheetCells(sheet: string, lines: readonly LoanAnalyticalLine[]): BankCell[] {
   const { named, ostali } = layoutLoan045(lines)
   const cells: BankCell[] = []
-  named.forEach((line, index) => writeLine(cells, FIRST_ROW + index, line, true))
-  if (ostali) writeLine(cells, OSTALI_ROW, ostali, false)
+  named.forEach((line, index) => writeLine(cells, sheet, FIRST_ROW + index, line, true))
+  if (ostali) writeLine(cells, sheet, OSTALI_ROW, ostali, false)
   return cells
+}
+
+export function loan045Cells(lines: readonly LoanAnalyticalLine[]): BankCell[] {
+  return loanSheetCells(SHEET_045, lines)
 }
 
 /**
  * Ko je posnetek naložen, se skupni znesek na vrstici OSTALI umakne.
  * Na njegovo mesto pridejo analitične vrstice. Brez posnetka ostane dosedanji vpis.
  */
-export function applySheet045(cells: BankCell[], lines: LoanAnalyticalLine[] | null | undefined): BankCell[] {
+export function applyLoanSheet(
+  cells: BankCell[],
+  sheet: string,
+  lines: LoanAnalyticalLine[] | null | undefined,
+): BankCell[] {
   if (!lines?.length) return cells
-  const kept = cells.filter((cell) => !(cell.sheet === SHEET_045 && /^(?:D|E|F)18$/.test(cell.cell)))
-  return [...kept, ...loan045Cells(lines)]
+  const kept = cells.filter((cell) => !(cell.sheet === sheet && /^(?:D|E|F)18$/.test(cell.cell)))
+  return [...kept, ...loanSheetCells(sheet, lines)]
+}
+
+export function applySheet045(cells: BankCell[], lines: LoanAnalyticalLine[] | null | undefined): BankCell[] {
+  return applyLoanSheet(cells, SHEET_045, lines)
+}
+
+export function applySheet076(cells: BankCell[], lines: LoanAnalyticalLine[] | null | undefined): BankCell[] {
+  return applyLoanSheet(cells, SHEET_076, lines)
 }
 
 export function sanitizeLoanLines(value: unknown): LoanAnalyticalLine[] | null {
@@ -190,31 +209,31 @@ export function linesFromWords(words: readonly OcrWord[]): LoanAnalyticalLine[] 
   return lines
 }
 
-function writeLine(cells: BankCell[], row: number, line: LoanAnalyticalLine, writeName: boolean) {
-  if (writeName && line.name) text(cells, `B${row}`, line.name)
-  if (line.taxNumber) text(cells, `C${row}`, line.taxNumber)
-  euros(cells, `D${row}`, line.openingCents)
-  euros(cells, `E${row}`, line.increaseCents)
-  euros(cells, `F${row}`, line.decreaseCents)
+function writeLine(cells: BankCell[], sheet: string, row: number, line: LoanAnalyticalLine, writeName: boolean) {
+  if (writeName && line.name) text(cells, sheet, `B${row}`, line.name)
+  if (line.taxNumber) text(cells, sheet, `C${row}`, line.taxNumber)
+  euros(cells, sheet, `D${row}`, line.openingCents)
+  euros(cells, sheet, `E${row}`, line.increaseCents)
+  euros(cells, sheet, `F${row}`, line.decreaseCents)
   const movement =
     line.openingCents != null || line.increaseCents != null || line.decreaseCents != null
   const formula = (line.openingCents ?? 0) + (line.increaseCents ?? 0) - (line.decreaseCents ?? 0)
   if (line.closingCents != null && (!movement || line.closingCents !== formula)) {
-    euros(cells, `G${row}`, line.closingCents)
+    euros(cells, sheet, `G${row}`, line.closingCents)
   }
-  euros(cells, `H${row}`, line.installmentCents)
-  if (line.paymentPeriod) text(cells, `I${row}`, line.paymentPeriod)
-  if (line.maturity) writeMaturity(cells, row, line.maturity)
-  if (line.purpose) text(cells, `K${row}`, line.purpose)
+  euros(cells, sheet, `H${row}`, line.installmentCents)
+  if (line.paymentPeriod) text(cells, sheet, `I${row}`, line.paymentPeriod)
+  if (line.maturity) writeMaturity(cells, sheet, row, line.maturity)
+  if (line.purpose) text(cells, sheet, `K${row}`, line.purpose)
 }
 
-function writeMaturity(cells: BankCell[], row: number, value: string) {
+function writeMaturity(cells: BankCell[], sheet: string, row: number, value: string) {
   const parsed = civilDate(value)
   if (parsed) {
-    cells.push({ sheet: SHEET_045, cell: `J${row}`, number: excelSerial(parsed) })
+    cells.push({ sheet, cell: `J${row}`, number: excelSerial(parsed) })
     return
   }
-  text(cells, `J${row}`, value)
+  text(cells, sheet, `J${row}`, value)
 }
 
 function sumLines(lines: LoanAnalyticalLine[]): LoanAnalyticalLine {
@@ -269,15 +288,15 @@ function copyIfSame(
   if (values.every((value) => value === values[0])) target[key] = values[0]
 }
 
-function euros(cells: BankCell[], cell: string, cents: number | undefined) {
+function euros(cells: BankCell[], sheet: string, cell: string, cents: number | undefined) {
   if (cents == null || !Number.isFinite(cents) || cents === 0) return
-  cells.push({ sheet: SHEET_045, cell, euros: Math.round(cents) })
+  cells.push({ sheet, cell, euros: Math.round(cents) })
 }
 
-function text(cells: BankCell[], cell: string, value: string) {
+function text(cells: BankCell[], sheet: string, cell: string, value: string) {
   const clean = value.trim()
   if (!clean) return
-  cells.push({ sheet: SHEET_045, cell, text: clean })
+  cells.push({ sheet, cell, text: clean })
 }
 
 function textField(value: unknown, limit: number): string {
@@ -500,4 +519,183 @@ function overlap(a0: number, a1: number, b0: number, b1: number): number {
 
 function centerOf(column: Column): number {
   return (column.x0 + column.x1) / 2
+}
+
+type AnalyticalKind =
+  | "name"
+  | "tax"
+  | "opening"
+  | "increase"
+  | "decrease"
+  | "closing"
+  | "installment"
+  | "period"
+  | "maturity"
+  | "purpose"
+  | "ignore"
+
+type AnalyticalColumn = { kind: AnalyticalKind; x0: number; x1: number }
+
+/**
+ * Tabela v slogu kupcev in dobaviteljev (zap., naziv, davčna, Stanje, razredi zapadlosti).
+ * Na list se zapišejo samo stolpci, ki jih predloga ima. Razredi zapadlosti ostanejo prazni.
+ */
+export function parseAnalyticalGrid(grid: string[][]): LoanAnalyticalLine[] {
+  const found = findAnalyticalHeader(grid)
+  if (!found) return []
+  const lines: LoanAnalyticalLine[] = []
+  for (let index = found.row + 1; index < grid.length; index += 1) {
+    const line = grid[index] ?? []
+    if (line.some((cell) => TOTAL.test((cell ?? "").trim()))) break
+    const parsed = lineFromAnalytical(line, found.kinds)
+    if (parsed && loanLineHasData(parsed)) lines.push(parsed)
+  }
+  return lines
+}
+
+/** Isti razrez, ko so besede še na koordinatah posnetka. */
+export function parseAnalyticalTsv(tsv: string): LoanAnalyticalLine[] {
+  const rows = clusterRows(tsvWords(tsv)).map((row) => mergeCells(row))
+  let headerAt = -1
+  let columns: AnalyticalColumn[] = []
+  for (let index = 0; index < rows.length; index += 1) {
+    const found = columnsFromCells(rows[index] ?? [])
+    if (!found) continue
+    headerAt = index
+    columns = found
+    break
+  }
+  if (headerAt < 0) return []
+  const lines: LoanAnalyticalLine[] = []
+  for (const row of rows.slice(headerAt + 1)) {
+    const joined = row.map((cell) => cell.text).join(" ")
+    if (TOTAL.test(joined.trim())) break
+    const buckets = new Map<AnalyticalKind, string[]>()
+    for (const cell of row) {
+      let best: { kind: AnalyticalKind; score: number } | null = null
+      for (const column of columns) {
+        const score = overlap(cell.x0, cell.x1, column.x0, column.x1)
+        if (score > 0 && (!best || score > best.score)) best = { kind: column.kind, score }
+      }
+      if (!best || best.kind === "ignore") continue
+      const list = buckets.get(best.kind) ?? []
+      list.push(cell.text)
+      buckets.set(best.kind, list)
+    }
+    const parsed = lineFromBuckets(buckets)
+    if (parsed && loanLineHasData(parsed)) lines.push(parsed)
+  }
+  return lines
+}
+
+function findAnalyticalHeader(grid: string[][]): { row: number; kinds: (AnalyticalKind | null)[] } | null {
+  const limit = Math.min(grid.length, 40)
+  for (let row = 0; row < limit; row += 1) {
+    const kinds = (grid[row] ?? []).map((cell) => analyticalKind(cell ?? ""))
+    if (isAnalyticalHeader(kinds)) return { row, kinds }
+  }
+  return null
+}
+
+function columnsFromCells(cells: OcrCell[]): AnalyticalColumn[] | null {
+  const columns: AnalyticalColumn[] = []
+  const used = new Set<AnalyticalKind>()
+  for (const cell of cells) {
+    const kind = analyticalKind(cell.text)
+    if (!kind) continue
+    if (kind !== "ignore" && used.has(kind)) continue
+    used.add(kind)
+    columns.push({ kind, x0: cell.x0, x1: cell.x1 })
+  }
+  if (!isAnalyticalHeader(columns.map((column) => column.kind))) return null
+  return columns
+}
+
+function isAnalyticalHeader(kinds: readonly (AnalyticalKind | null)[]): boolean {
+  const present = new Set(kinds.filter((kind): kind is AnalyticalKind => Boolean(kind)))
+  if (!present.has("name")) return false
+  return (
+    present.has("closing") ||
+    present.has("opening") ||
+    present.has("increase") ||
+    present.has("decrease") ||
+    present.has("installment")
+  )
+}
+
+function lineFromAnalytical(cells: string[], kinds: (AnalyticalKind | null)[]): LoanAnalyticalLine | null {
+  const buckets = new Map<AnalyticalKind, string[]>()
+  kinds.forEach((kind, index) => {
+    if (!kind || kind === "ignore") return
+    const value = (cells[index] ?? "").trim()
+    if (!value) return
+    const list = buckets.get(kind) ?? []
+    list.push(value)
+    buckets.set(kind, list)
+  })
+  return lineFromBuckets(buckets)
+}
+
+function lineFromBuckets(buckets: Map<AnalyticalKind, string[]>): LoanAnalyticalLine | null {
+  const line: LoanAnalyticalLine = {}
+  const name = (buckets.get("name") ?? []).join(" ").trim()
+  const tax = (buckets.get("tax") ?? []).join("").replace(/\s/g, "")
+  const period = (buckets.get("period") ?? []).join(" ").trim()
+  const maturity = (buckets.get("maturity") ?? []).join("").trim()
+  const purpose = (buckets.get("purpose") ?? []).join(" ").trim()
+  if (name && !TOTAL.test(name) && !/^\d+$/.test(name)) line.name = name
+  if (isTax(tax)) line.taxNumber = tax
+  if (period && !isMoney(period)) line.paymentPeriod = period
+  if (maturity) line.maturity = parseSloveneDate(maturity) ?? maturity
+  if (purpose && !isMoney(purpose)) line.purpose = purpose
+  assignOptional(line, "openingCents", buckets.get("opening"))
+  assignOptional(line, "increaseCents", buckets.get("increase"))
+  assignOptional(line, "decreaseCents", buckets.get("decrease"))
+  assignOptional(line, "closingCents", buckets.get("closing"))
+  assignOptional(line, "installmentCents", buckets.get("installment"))
+  return loanLineHasData(line) ? line : null
+}
+
+function assignOptional(
+  line: LoanAnalyticalLine,
+  key: "openingCents" | "increaseCents" | "decreaseCents" | "closingCents" | "installmentCents",
+  parts: string[] | undefined,
+) {
+  if (!parts?.length) return
+  const amount = optionalCents(parts.join(""))
+  if (amount == null) return
+  line[key] = amount
+}
+
+function optionalCents(raw: string): number | undefined {
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === "-" || trimmed === "—" || trimmed === "–") return undefined
+  const amount = parseCents(trimmed)
+  if (amount == null || amount === 0) return undefined
+  return amount
+}
+
+function analyticalKind(value: string): AnalyticalKind | null {
+  const header = value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[–—−]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+  if (!header || header === "zap" || header === "zap." || header === "zst" || header === "delez") return "ignore"
+  if (/nezapad|nerazp|do\s*30|31\s*-\s*60|30\s*-\s*60|61\s*-\s*90|91\s*-\s*150|nad\s*150/.test(header)) return "ignore"
+  if (header === "zapadlo" || header.startsWith("zapadlo ")) return "ignore"
+  if (/zapadlost/.test(header)) return "maturity"
+  if (/zacet|acetn/.test(header)) return "opening"
+  if (/konc/.test(header)) return "closing"
+  if (header === "stanje") return "closing"
+  if (/povec|vecan/.test(header)) return "increase"
+  if (/zmanj/.test(header)) return "decrease"
+  if (/obrok/.test(header)) return "installment"
+  if (/namen/.test(header)) return "purpose"
+  if (/obdob|placil/.test(header)) return "period"
+  if (/davc/.test(header) || header === "stevilka" || header.endsWith(" stevilka")) return "tax"
+  if (/posojil|jemal|dajal|naziv|partner|kupec|dobavitelj/.test(header)) return "name"
+  return null
 }

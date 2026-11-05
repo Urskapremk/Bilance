@@ -11,6 +11,7 @@ import { clientDatabaseName } from "./browser-book.ts"
 import {
   agingSheetCells,
   agingTotalCents,
+  parseAgingGrid,
   parseAgingWorkbook,
   partnerPeriodKey,
   type AgingParty,
@@ -41,14 +42,14 @@ const CUSTOMER_ROWS: (string | number | null)[][] = [
   ["1", "Telemach d.o.o.", "66863627", "", 43923.32, 43923.32, "", "", "", "", "", "", ""],
   ["2", "Zavarovalnica Triglav d.d.", "80040306", "", 27718.4, 27718.4, "", "", "", "", "", "", ""],
   ["3", "Triglav med d.o.o.", "95307320", "", 27718.4, 27718.4, "", "", "", "", "", "", ""],
-  ["4", "SŽ Express d.o.o.", "20643691", "", 8285.02, "", 8285.02, "", "", "", 8285.02, "", ""],
+  ["4", "SŽ Express d.o.o.", "20643691", "", 8285.02, "", 8285.02, "", "", "", "", 8285.02, ""],
   ["5", "Planeta d.o.o.", "74697706", "", 5709.6, 5709.6, "", "", "", "", "", "", ""],
   ["6", "Lienela d.o.o.", "76531384", "", 5600, 5600, "", "", "", "", "", "", ""],
   ["7", "Lienelia d.o.o.", "78073642", "", 2400, 2400, "", "", "", "", "", "", ""],
   ["8", "PBGW3 d.o.o.", "84088982", "", 1880.94, 1880.94, "", "", "", "", "", "", ""],
   ["9", "Ayvens Slovenija d.o.o.", "26485141", "", 1625.5, "", 1625.5, 1625.5, "", "", "", "", ""],
   ["10", "Pivovarna Laško d.o.o.", "90355580", "", 243.37, "", 243.37, "", "", "", "", 243.37, ""],
-  ["11", "ostali", "", "", 52.11, 52.11, "", "", "", "", "", "", ""],
+  ["11", "ostali", "", "", 52.11, "", 52.11, "", "", "", "", 52.11, ""],
   ["", "SKUPAJ", "", "", 125156.66, "", "", "", "", "", "", "", ""],
 ]
 
@@ -60,10 +61,15 @@ test("enajst kupcev pade v prve vrstice razkritij, skupaj je 125.156,66", async 
   assert.equal(parties[0]?.nezapadlo, 4_392_332)
   assert.equal(parties[0]?.stanje, 4_392_332)
   assert.equal(parties[3]?.name, "SŽ Express d.o.o.")
-  assert.equal(parties[3]?.d150, 828_502)
+  assert.equal(parties[3]?.d150, 0)
+  assert.equal(parties[3]?.nad150, 828_502)
+  assert.equal(parties[3]?.zapadlo, 828_502)
   assert.equal(parties[8]?.do30, 162_550)
   assert.equal(parties[9]?.nad150, 24_337)
   assert.equal(parties[10]?.name, "ostali")
+  assert.equal(parties[10]?.nezapadlo, 0)
+  assert.equal(parties[10]?.zapadlo, 5_211)
+  assert.equal(parties[10]?.nad150, 5_211)
   assert.equal(agingTotalCents(parties), 12_515_666)
 
   const statement = {
@@ -83,12 +89,14 @@ test("enajst kupcev pade v prve vrstice razkritij, skupaj je 125.156,66", async 
   assert.equal(findBankCell(cells, KUPCI, "G8")?.euros, 4_392_332)
   assert.equal(findBankCell(cells, KUPCI, "D8")?.euros, 4_392_332)
   assert.equal(findBankCell(cells, KUPCI, "B11")?.text, "SŽ Express d.o.o.")
-  assert.equal(findBankCell(cells, KUPCI, "L11")?.euros, 828_502)
+  assert.equal(findBankCell(cells, KUPCI, "L11"), undefined)
+  assert.equal(findBankCell(cells, KUPCI, "M11")?.euros, 828_502)
   assert.equal(findBankCell(cells, KUPCI, "I16")?.euros, 162_550)
   assert.equal(findBankCell(cells, KUPCI, "M17")?.euros, 24_337)
   assert.equal(findBankCell(cells, KUPCI, "B18"), undefined)
   assert.equal(findBankCell(cells, KUPCI, "D18")?.euros, 5_211)
-  assert.equal(findBankCell(cells, KUPCI, "G18")?.euros, 5_211)
+  assert.equal(findBankCell(cells, KUPCI, "G18"), undefined)
+  assert.equal(findBankCell(cells, KUPCI, "M18")?.euros, 5_211)
   const written = cells
     .filter((cell) => cell.sheet === KUPCI && cell.euros !== undefined && /^D\d+$/.test(cell.cell))
     .reduce((sum, cell) => sum + (cell.euros ?? 0), 0)
@@ -99,7 +107,9 @@ test("enajst kupcev pade v prve vrstice razkritij, skupaj je 125.156,66", async 
   const xml = await zip.file("xl/worksheets/sheet16.xml")!.async("string")
   assert.equal(cellValue(xml, "B8"), "Telemach d.o.o.")
   assert.equal(cellValue(xml, "G8"), "43923.32")
-  assert.equal(cellValue(xml, "L11"), "8285.02")
+  assert.equal(cellValue(xml, "M11"), "8285.02")
+  assert.doesNotMatch(xml, /<c r="L11"[^/>]*>\s*<v>/)
+  assert.equal(cellValue(xml, "M18"), "52.11")
   assert.match(cellInner(xml, "F8"), /<f>D8-E8<\/f>/)
   assert.match(cellInner(xml, "H8"), /<f>SUM\(I8:M8\)<\/f>/)
   let total = 0
@@ -157,6 +167,166 @@ test("dobavitelji gredo v stolpce lista obveznosti", async () => {
   await assert.rejects(parseAgingWorkbook(file, "kupci"), /dobavitelji/)
 })
 
+/** Enajst dobaviteljev s posnetka. Stolpca nerazporejeno ni. Prazni razredi ostanejo prazni. */
+const SUPPLIER_GRID: string[][] = [
+  ["zap.", "Dobavitelj", "Davčna", "Stanje", "Nezapadlo", "Zapadlo", "do 30", "31-60", "61-90", "91-150", "nad 150"],
+  ["1", "Medikospot d.o.o.", "44322895", "19.764,00", "", "19.764,00", "19.764,00", "", "", "", ""],
+  ["2", "Top Relax srl", "IT 03865270262", "9.564,03", "", "9.564,03", "", "", "", "", "9.564,03"],
+  ["3", "MF4L D.O.O.", "63557932", "8.900,00", "8.900,00", "", "", "", "", "", ""],
+  ["4", "Uroš Dimnik s.p.", "43672540", "7.200,00", "7.200,00", "", "", "", "", "", ""],
+  ["5", "Klemen Janežič s.p.", "45155682", "4.600,00", "4.600,00", "", "", "", "", "", ""],
+  ["6", "Studio C6 LTD", "GB", "4.550,00", "4.550,00", "", "", "", "", "", ""],
+  ["7", "VENKS d.n.o.", "69427968", "1.952,00", "1.952,00", "", "", "", "", "", ""],
+  ["8", "Zavarovalnica Sava d.d.", "44814631", "1.404,16", "1.404,16", "", "", "", "", "", ""],
+  ["9", "Bitnet d.o.o.", "55681140", "1.320,04", "1.320,04", "", "", "", "", "", ""],
+  ["10", "Hnatura d.o.o.", "31141544", "603,05", "603,05", "", "", "", "", "", ""],
+  ["11", "ostali", "", "1.737,22", "936,56", "800,66", "136,00", "", "", "126,36", "538,30"],
+  ["", "SKUPAJ", "", "61.594,50", "31.465,81", "30.128,69", "", "", "", "", ""],
+]
+
+test("enajst dobaviteljev s posnetka pade na zavihek 093, skupaj je 61.594,50", async () => {
+  const parties = parseAgingGrid(SUPPLIER_GRID, "dobavitelji")
+  assert.equal(parties.length, 11)
+  assert.equal(parties.some((row) => row.name.toLowerCase() === "skupaj"), false)
+  assert.equal(parties[0]?.name, "Medikospot d.o.o.")
+  assert.equal(parties[0]?.taxNumber, "44322895")
+  assert.equal(parties[0]?.stanje, 1_976_400)
+  assert.equal(parties[0]?.nezapadlo, 0)
+  assert.equal(parties[0]?.zapadlo, 1_976_400)
+  assert.equal(parties[0]?.do30, 1_976_400)
+  assert.equal(parties[0]?.d60, 0)
+  assert.equal(parties[0]?.d90, 0)
+  assert.equal(parties[0]?.d150, 0)
+  assert.equal(parties[0]?.nad150, 0)
+  assert.equal(parties[0]?.nerazporejeno, 0)
+  assert.equal(parties[1]?.name, "Top Relax srl")
+  assert.equal(parties[1]?.taxNumber, "IT03865270262")
+  assert.equal(parties[1]?.stanje, 956_403)
+  assert.equal(parties[1]?.nezapadlo, 0)
+  assert.equal(parties[1]?.nad150, 956_403)
+  assert.equal(parties[1]?.do30, 0)
+  assert.equal(parties[2]?.name, "MF4L D.O.O.")
+  assert.equal(parties[2]?.nezapadlo, 890_000)
+  assert.equal(parties[2]?.zapadlo, 0)
+  assert.equal(parties[5]?.name, "Studio C6 LTD")
+  assert.equal(parties[5]?.taxNumber, "GB")
+  assert.equal(parties[5]?.stanje, 455_000)
+  assert.equal(parties[5]?.nezapadlo, 455_000)
+  assert.equal(parties[7]?.stanje, 140_416)
+  assert.equal(parties[7]?.nezapadlo, 140_416)
+  assert.equal(parties[9]?.name, "Hnatura d.o.o.")
+  assert.equal(parties[9]?.stanje, 60_305)
+  assert.equal(parties[10]?.name, "ostali")
+  assert.equal(parties[10]?.taxNumber, "")
+  assert.equal(parties[10]?.stanje, 173_722)
+  assert.equal(parties[10]?.nezapadlo, 93_656)
+  assert.equal(parties[10]?.zapadlo, 80_066)
+  assert.equal(parties[10]?.do30, 13_600)
+  assert.equal(parties[10]?.d60, 0)
+  assert.equal(parties[10]?.d90, 0)
+  assert.equal(parties[10]?.d150, 12_636)
+  assert.equal(parties[10]?.nad150, 53_830)
+  for (const row of parties) {
+    assert.equal(row.do30 + row.d60 + row.d90 + row.d150 + row.nad150, row.zapadlo)
+    assert.equal(row.nezapadlo + row.zapadlo + row.nerazporejeno, row.stanje)
+  }
+  assert.equal(agingTotalCents(parties), 6_159_450)
+
+  const statement = {
+    company: "Severnica trgovina d.o.o.",
+    period: "1. 1. 2026–31. 7. 2026",
+    currentDate: "31. 7. 2026",
+    legalForm: "doo" as const,
+    balance: { current: {}, previous: {} },
+    income: {},
+  }
+  const cells = disclosureCells(statement, { dobavitelji: parties })
+  assert.equal(findBankCell(cells, DOBAVITELJI, "B8")?.text, "Medikospot d.o.o.")
+  assert.equal(findBankCell(cells, DOBAVITELJI, "C8")?.text, "44322895")
+  assert.equal(findBankCell(cells, DOBAVITELJI, "D8")?.euros, 1_976_400)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "E8"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "F8"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "G8")?.euros, 1_976_400)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "H8"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "I8"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "J8"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "K8"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "L8"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "B9")?.text, "Top Relax srl")
+  assert.equal(findBankCell(cells, DOBAVITELJI, "C9")?.text, "IT03865270262")
+  assert.equal(findBankCell(cells, DOBAVITELJI, "D9")?.euros, 956_403)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "K9")?.euros, 956_403)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "G9"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "E10")?.euros, 890_000)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "B13")?.text, "Studio C6 LTD")
+  assert.equal(findBankCell(cells, DOBAVITELJI, "C13")?.text, "GB")
+  assert.equal(findBankCell(cells, DOBAVITELJI, "D17")?.euros, 60_305)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "E17")?.euros, 60_305)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "B18"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "C18"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "D18")?.euros, 173_722)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "E18")?.euros, 93_656)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "G18")?.euros, 13_600)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "H18"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "I18"), undefined)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "J18")?.euros, 12_636)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "K18")?.euros, 53_830)
+  assert.equal(findBankCell(cells, DOBAVITELJI, "F18"), undefined)
+  const written = cells
+    .filter((cell) => cell.sheet === DOBAVITELJI && cell.euros !== undefined && /^D\d+$/.test(cell.cell))
+    .reduce((sum, cell) => sum + (cell.euros ?? 0), 0)
+  assert.equal(written, 6_159_450)
+  assert.equal(
+    cells.some((cell) => cell.sheet.startsWith("045") && cell.text?.includes("Medikospot")),
+    false,
+  )
+  assert.equal(
+    cells.some((cell) => cell.sheet === KUPCI && cell.text?.includes("Medikospot")),
+    false,
+  )
+
+  const filled = await fillDhWorkbook(await readFile(TEMPLATE), cells, { dropStaleText: true })
+  const zip = await JSZip.loadAsync(filled)
+  const xml = await zip.file("xl/worksheets/sheet26.xml")!.async("string")
+  assert.equal(cellValue(xml, "B8"), "Medikospot d.o.o.")
+  assert.equal(cellValue(xml, "C8"), "44322895")
+  assert.equal(cellValue(xml, "D8"), "19764")
+  assert.equal(cellValue(xml, "G8"), "19764")
+  assert.equal(cellValue(xml, "E8"), null)
+  assert.equal(cellValue(xml, "K8"), null)
+  assert.equal(cellValue(xml, "D9"), "9564.03")
+  assert.equal(cellValue(xml, "K9"), "9564.03")
+  assert.equal(cellValue(xml, "C9"), "IT03865270262")
+  assert.equal(cellValue(xml, "C13"), "GB")
+  assert.equal(cellValue(xml, "E15"), "1404.16")
+  assert.equal(cellValue(xml, "D16"), "1320.04")
+  assert.equal(cellValue(xml, "D17"), "603.05")
+  assert.equal(cellValue(xml, "D18"), "1737.22")
+  assert.equal(cellValue(xml, "E18"), "936.56")
+  assert.equal(cellValue(xml, "G18"), "136")
+  assert.equal(cellValue(xml, "J18"), "126.36")
+  assert.equal(cellValue(xml, "K18"), "538.30")
+  assert.equal(cellValue(xml, "H18"), null)
+  assert.equal(cellValue(xml, "I18"), null)
+  assert.match(xml, /<c r="B18"[^>]*t="s"/)
+  assert.match(cellInner(xml, "F8"), /<f>SUM\(G8:K8\)<\/f>/)
+  assert.match(cellInner(xml, "F9"), /<f t="shared" ref="F9:F17"/)
+  assert.match(cellInner(xml, "F18"), /<f>SUM\(G18:K18\)<\/f>/)
+  assert.match(cellInner(xml, "L8"), /<f>D8-E8-F8<\/f>/)
+  assert.match(cellInner(xml, "L9"), /<f t="shared" ref="L9:L18"/)
+  assert.match(cellInner(xml, "D19"), /ROUND\(SUM\(D8:D18\),2\)/)
+  let total = 0
+  for (let row = 8; row <= 18; row += 1) total += Math.round(Number(cellValue(xml, `D${row}`) ?? "0") * 100)
+  assert.equal(total, 6_159_450)
+  let nezapadlo = 0
+  for (let row = 8; row <= 18; row += 1) nezapadlo += Math.round(Number(cellValue(xml, `E${row}`) ?? "0") * 100)
+  assert.equal(nezapadlo, 3_146_581)
+  const loans = await zip.file("xl/worksheets/sheet14.xml")!.async("string")
+  assert.doesNotMatch(loans, /Medikospot/)
+  const buyers = await zip.file("xl/worksheets/sheet16.xml")!.async("string")
+  assert.doesNotMatch(buyers, /Medikospot/)
+})
+
 test("prazna terjatve se ne vpiše, izpolnjena pa gre v bruto in slabitev", () => {
   const gross = party("Kupec d.o.o.", 8_000)
   gross.terjatve = 10_000
@@ -183,6 +353,7 @@ function party(name: string, stanje: number): AgingParty {
 }
 
 function cellInner(xml: string, ref: string): string {
+  if (new RegExp(`<c r="${ref}"[^>]*/>`).test(xml)) return ""
   const match = new RegExp(`<c r="${ref}"[^>]*>([\\s\\S]*?)</c>`).exec(xml)
   return match?.[1] ?? ""
 }

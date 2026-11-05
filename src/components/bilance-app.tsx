@@ -54,7 +54,7 @@ import type { EkarticaReport } from "@/lib/ekartica"
 import { rollup, sheetWarnings } from "@/lib/compute"
 import { formatCents, splitPeriod } from "@/lib/format"
 import { parseAgingWorkbook, type AgingKind, type AgingParty } from "@/lib/partner-aging"
-import { readLoan045, writeLoan045 } from "@/lib/zavihek-045-store"
+import { readLoan045, readLoan076, writeLoan045, writeLoan076 } from "@/lib/zavihek-045-store"
 import type { LoanAnalyticalLine } from "@/lib/zavihek-045"
 import { accountsForSearch, applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
@@ -116,9 +116,13 @@ export function BilanceApp() {
   const [dobavitelji, setDobavitelji] = useState<AgingParty[] | null>(null)
   const [agingBusy, setAgingBusy] = useState<AgingKind | null>(null)
   const [loans045, setLoans045] = useState<LoanAnalyticalLine[] | null>(null)
+  const [loans076, setLoans076] = useState<LoanAnalyticalLine[] | null>(null)
   const [sheet045Busy, setSheet045Busy] = useState(false)
+  const [sheet076Busy, setSheet076Busy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [customerOver, setCustomerOver] = useState(false)
+  const [supplierOver, setSupplierOver] = useState(false)
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
   const [saveAsk, setSaveAsk] = useState(false)
   const [savingArchive, setSavingArchive] = useState(false)
@@ -154,7 +158,10 @@ export function BilanceApp() {
   const kupciInputRef = useRef<HTMLInputElement>(null)
   const dobaviteljiInputRef = useRef<HTMLInputElement>(null)
   const sheet045InputRef = useRef<HTMLInputElement>(null)
+  const sheet076InputRef = useRef<HTMLInputElement>(null)
   const sheet045Epoch = useRef(0)
+  const sheet076Epoch = useRef(0)
+  const loanPasteKind = useRef<"045" | "076">("045")
   const pasteSheet045Ref = useRef<(event: ClipboardEvent) => void>(() => undefined)
   const agingEpoch = useRef(0)
   const cardInputRef = useRef<HTMLInputElement>(null)
@@ -214,6 +221,12 @@ export function BilanceApp() {
       .then((stored) => {
         if (statementRef.current.company !== company || statementRef.current.period !== period) return
         setLoans045(stored?.lines.length ? stored.lines : null)
+      })
+      .catch(() => undefined)
+    void readLoan076(company, period)
+      .then((stored) => {
+        if (statementRef.current.company !== company || statementRef.current.period !== period) return
+        setLoans076(stored?.lines.length ? stored.lines : null)
       })
       .catch(() => undefined)
   }, [statement.company, statement.period])
@@ -1422,7 +1435,7 @@ export function BilanceApp() {
     setAgingBusy(kind)
     setError(null)
     try {
-      const rows = await parseAgingWorkbook(await file.arrayBuffer(), kind)
+      const rows = await readAgingFile(file, kind)
       await writePartnerAging(company, period, kind, rows)
       if (epoch !== agingEpoch.current) return
       if (statementRef.current.company !== company || statementRef.current.period !== period) return
@@ -1435,6 +1448,49 @@ export function BilanceApp() {
     } finally {
       if (epoch === agingEpoch.current) setAgingBusy(null)
     }
+  }
+
+  async function readAgingFile(file: File, kind: AgingKind) {
+    if (!isAgingImage(file)) return parseAgingWorkbook(await file.arrayBuffer(), kind)
+    const body = new FormData()
+    body.set("file", file)
+    body.set("kind", kind)
+    const response = await fetch("/api/starost", { method: "POST", body })
+    const data = (await response.json().catch(() => null)) as { rows?: AgingParty[]; error?: string } | null
+    if (!response.ok || !data?.rows?.length) {
+      throw new Error(data?.error ?? "Tabele na sliki ni bilo mogoče prebrati.")
+    }
+    return data.rows
+  }
+
+  function supplierFile(data: DataTransfer | null): File | null {
+    if (!data) return null
+    const files = [...data.files]
+    for (const item of data.items) {
+      if (item.kind !== "file") continue
+      const file = item.getAsFile()
+      if (!file) continue
+      if (!file.type && item.type.startsWith("image/")) {
+        const ext = item.type === "image/jpeg" ? "jpg" : item.type === "image/webp" ? "webp" : "png"
+        files.push(new File([file], file.name || `dobavitelji.${ext}`, { type: item.type }))
+        continue
+      }
+      files.push(file)
+    }
+    return files.find((file) => isAgingImage(file) || /\.xlsx$/i.test(file.name)) ?? null
+  }
+
+  function isAgingImage(file: File): boolean {
+    const name = file.name.toLowerCase()
+    return (
+      file.type === "image/png" ||
+      file.type === "image/jpeg" ||
+      file.type === "image/webp" ||
+      name.endsWith(".png") ||
+      name.endsWith(".jpg") ||
+      name.endsWith(".jpeg") ||
+      name.endsWith(".webp")
+    )
   }
 
   function agingNote(kind: AgingKind, rows: AgingParty[] | null): string | null {
@@ -1467,7 +1523,7 @@ export function BilanceApp() {
     return new File([file], file.name || "zavihek-045.png", { type })
   }
 
-  async function loadSheet045(file: File) {
+  async function loadLoanShot(kind: "045" | "076", file: File) {
     const current = statementRef.current
     const company = current.company
     const period = current.period
@@ -1480,9 +1536,11 @@ export function BilanceApp() {
       return
     }
     const image = sheet045File(file)
-    sheet045Epoch.current += 1
-    const epoch = sheet045Epoch.current
-    setSheet045Busy(true)
+    const epochRef = kind === "076" ? sheet076Epoch : sheet045Epoch
+    epochRef.current += 1
+    const epoch = epochRef.current
+    if (kind === "076") setSheet076Busy(true)
+    else setSheet045Busy(true)
     setError(null)
     try {
       const body = new FormData()
@@ -1492,29 +1550,35 @@ export function BilanceApp() {
       if (!response.ok || !data?.lines?.length) {
         throw new Error(data?.error ?? "Na posnetku ni analitičnih vrstic.")
       }
-      await writeLoan045(company, period, data.lines, {
-        name: image.name || "zavihek-045.png",
+      const saved = {
+        name: image.name || (kind === "076" ? "zavihek-076.png" : "zavihek-045.png"),
         type: image.type || "image/png",
         bytes: await image.arrayBuffer(),
-      })
-      if (epoch !== sheet045Epoch.current) return
+      }
+      if (kind === "076") await writeLoan076(company, period, data.lines, saved)
+      else await writeLoan045(company, period, data.lines, saved)
+      if (epoch !== epochRef.current) return
       if (statementRef.current.company !== company || statementRef.current.period !== period) return
-      setLoans045(data.lines)
+      if (kind === "076") setLoans076(data.lines)
+      else setLoans045(data.lines)
     } catch (caught) {
-      if (epoch === sheet045Epoch.current) {
+      if (epoch === epochRef.current) {
         setError(caught instanceof Error ? caught.message : "Tabele na posnetku ni bilo mogoče prebrati.")
       }
     } finally {
-      if (epoch === sheet045Epoch.current) setSheet045Busy(false)
+      if (epoch === epochRef.current) {
+        if (kind === "076") setSheet076Busy(false)
+        else setSheet045Busy(false)
+      }
     }
   }
 
-  function pasteSheet045(event: ClipboardEvent) {
-    const target = event.target
-    if (target instanceof HTMLElement) {
-      const tag = target.tagName
-      if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return
-    }
+  function loadSheet045(file: File) {
+    loanPasteKind.current = "045"
+    return loadLoanShot("045", file)
+  }
+
+  function pasteLoanImage(event: ClipboardEvent, kind: "045" | "076") {
     const clipboard = event.clipboardData
     if (!clipboard) return
     const files = [...clipboard.files]
@@ -1527,7 +1591,22 @@ export function BilanceApp() {
     const image = files.find((file) => isSheet045Image(file))
     if (!image) return
     event.preventDefault()
-    void loadSheet045(image)
+    event.stopPropagation()
+    loanPasteKind.current = kind
+    void loadLoanShot(kind, image)
+  }
+
+  function pasteSheet045(event: ClipboardEvent) {
+    if (event.defaultPrevented) return
+    const target = event.target
+    if (target instanceof HTMLElement) {
+      if (target.closest("[data-kupci-paste], [data-dobavitelji-paste]")) return
+      if (target.closest("[data-obveznosti-paste]")) return
+      if (target.closest("[data-posojila-paste]")) return
+      const tag = target.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return
+    }
+    pasteLoanImage(event, loanPasteKind.current)
   }
   pasteSheet045Ref.current = pasteSheet045
 
@@ -1553,6 +1632,7 @@ export function BilanceApp() {
           ...(kupci?.length ? { kupci } : {}),
           ...(dobavitelji?.length ? { dobavitelji } : {}),
           ...(loans045?.length ? { posojila045: loans045 } : {}),
+          ...(loans076?.length ? { obveznosti076: loans076 } : {}),
         }),
       })
       if (!response.ok) {
@@ -1729,11 +1809,26 @@ export function BilanceApp() {
         <Button
           type="button"
           variant="outline"
-          onClick={() => sheet045InputRef.current?.click()}
+          onClick={() => {
+            loanPasteKind.current = "076"
+            sheet076InputRef.current?.click()
+          }}
+          disabled={exporting !== null || blank || sheet076Busy}
+        >
+          <FileUp />
+          {sheet076Busy ? "Berem dolgoročne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            loanPasteKind.current = "045"
+            sheet045InputRef.current?.click()
+          }}
           disabled={exporting !== null || blank || sheet045Busy}
         >
           <FileUp />
-          {sheet045Busy ? "Berem zavihek 045…" : "Naloži zavihek 045"}
+          {sheet045Busy ? "Berem kratkoročna posojila…" : "Naloži kratkoročna dana posojila"}
         </Button>
         {adremaReady ? (
           <>
@@ -2100,11 +2195,26 @@ export function BilanceApp() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => sheet045InputRef.current?.click()}
+                    onClick={() => {
+                      loanPasteKind.current = "076"
+                      sheet076InputRef.current?.click()
+                    }}
+                    disabled={exporting !== null || busy || ajpesBusy || blank || sheet076Busy}
+                  >
+                    <FileUp />
+                    {sheet076Busy ? "Berem dolgoročne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      loanPasteKind.current = "045"
+                      sheet045InputRef.current?.click()
+                    }}
                     disabled={exporting !== null || busy || ajpesBusy || blank || sheet045Busy}
                   >
                     <FileUp />
-                    {sheet045Busy ? "Berem zavihek 045…" : "Naloži zavihek 045"}
+                    {sheet045Busy ? "Berem kratkoročna posojila…" : "Naloži kratkoročna dana posojila"}
                   </Button>
                   <Button
                     type="button"
@@ -2125,6 +2235,20 @@ export function BilanceApp() {
                     {agingBusy === "dobavitelji" ? "Berem dobavitelje…" : "Naloži dobavitelje"}
                   </Button>
                   <input
+                    ref={sheet076InputRef}
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) {
+                        loanPasteKind.current = "076"
+                        void loadLoanShot("076", file)
+                      }
+                      event.target.value = ""
+                    }}
+                  />
+                  <input
                     ref={sheet045InputRef}
                     type="file"
                     accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
@@ -2138,7 +2262,7 @@ export function BilanceApp() {
                   <input
                     ref={kupciInputRef}
                     type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0]
@@ -2149,7 +2273,7 @@ export function BilanceApp() {
                   <input
                     ref={dobaviteljiInputRef}
                     type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0]
@@ -2165,11 +2289,125 @@ export function BilanceApp() {
                     </p>
                   ) : (
                     <div className="basis-full text-sm text-muted-foreground">
-                      <p>
-                        Razkritja se napolnijo iz odprte bilance {statement.period}. Naloženi kupci in dobavitelji se
-                        vpišejo v razkritja te stranke za to obdobje. Naloži zavihek 045 sprejme prilepljen ali naložen
-                        posnetek. Vrstice zavihka 045 ostanejo pri tej stranki za to obdobje.
+                      <div
+                        data-kupci-paste=""
+                        tabIndex={0}
+                        role="group"
+                        aria-label="Posnetek zaslona kupcev"
+                        className={cn(
+                          "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
+                          customerOver ? "border-gold bg-gold/10 text-navy" : "border-border",
+                        )}
+                        onPaste={(event) => {
+                          const file = supplierFile(event.clipboardData)
+                          if (!file || !isAgingImage(file)) return
+                          event.preventDefault()
+                          event.stopPropagation()
+                          void loadAging("kupci", file)
+                        }}
+                        onDragOver={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setCustomerOver(true)
+                        }}
+                        onDragLeave={() => setCustomerOver(false)}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setCustomerOver(false)
+                          const file = supplierFile(event.dataTransfer) ?? event.dataTransfer.files[0]
+                          if (file && isAgingImage(file)) void loadAging("kupci", file)
+                        }}
+                      >
+                        Sem prilepite posnetek zaslona kupcev (Ctrl+V) ali ga spustite sem. Lahko ga tudi izberete z
+                        Naloži kupce. Razkritja vpiše vrstice na zavihek 050, kratkoročne terjatve do kupcev.
+                      </div>
+                      <div
+                        data-dobavitelji-paste=""
+                        tabIndex={0}
+                        role="group"
+                        aria-label="Posnetek zaslona dobaviteljev"
+                        className={cn(
+                          "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
+                          supplierOver ? "border-gold bg-gold/10 text-navy" : "border-border",
+                        )}
+                        onPaste={(event) => {
+                          const file = supplierFile(event.clipboardData)
+                          if (!file) return
+                          event.preventDefault()
+                          event.stopPropagation()
+                          void loadAging("dobavitelji", file)
+                        }}
+                        onDragOver={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setSupplierOver(true)
+                        }}
+                        onDragLeave={() => setSupplierOver(false)}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setSupplierOver(false)
+                          const file = supplierFile(event.dataTransfer) ?? event.dataTransfer.files[0]
+                          if (file) void loadAging("dobavitelji", file)
+                        }}
+                      >
+                        Sem prilepite posnetek zaslona dobaviteljev (Ctrl+V) ali ga spustite sem. Lahko ga tudi
+                        izberete z Naloži dobavitelje. Razkritja vpiše vrstice na zavihek 093.
+                      </div>
+                      <div
+                        data-obveznosti-paste=""
+                        tabIndex={0}
+                        role="group"
+                        aria-label="Posnetek dolgoročnih finančnih obveznosti"
+                        className="mt-2 rounded-md border border-dashed border-border px-3 py-2 outline-none focus-visible:border-gold"
+                        onPaste={(event) => pasteLoanImage(event.nativeEvent, "076")}
+                        onDragOver={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          const file = event.dataTransfer.files[0]
+                          if (file) void loadLoanShot("076", file)
+                        }}
+                      >
+                        Sem prilepite posnetek dolgoročnih finančnih obveznosti (Ctrl+V, png, jpg ali webp) ali ga
+                        spustite sem. Lahko ga tudi izberete z gumbom. Razkritja vpiše vrstice na zavihek 076.
+                      </div>
+                      <div
+                        data-posojila-paste=""
+                        tabIndex={0}
+                        role="group"
+                        aria-label="Posnetek kratkoročnih danih posojil"
+                        className="mt-2 rounded-md border border-dashed border-border px-3 py-2 outline-none focus-visible:border-gold"
+                        onPaste={(event) => pasteLoanImage(event.nativeEvent, "045")}
+                        onDragOver={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          const file = event.dataTransfer.files[0]
+                          if (file) void loadLoanShot("045", file)
+                        }}
+                      >
+                        Sem prilepite posnetek kratkoročnih danih posojil (Ctrl+V, png, jpg ali webp) ali ga spustite
+                        sem. Lahko ga tudi izberete z gumbom. Razkritja vpiše vrstice na zavihek 045.
+                      </div>
+                      <p className="mt-2">
+                        Razkritja se napolnijo iz odprte bilance {statement.period}. Kupci se dodajo kot posnetek
+                        zaslona v prvo polje in gredo na zavihek 050. Posnetek zaslona dobaviteljev gre na zavihek
+                        093. Dolgoročne finančne obveznosti gredo na zavihek 076, kratkoročna dana posojila na
+                        zavihek 045. Vrstice ostanejo pri tej stranki za to obdobje in se vpišejo v datoteko banke.
                       </p>
+                      {loans076?.length ? (
+                        <p className="mt-1 text-navy">
+                          Zavihek 076: {loans076.length} analitičnih vrstic za to obdobje.
+                        </p>
+                      ) : null}
                       {loans045?.length ? (
                         <p className="mt-1 text-navy">
                           Zavihek 045: {loans045.length} analitičnih vrstic za to obdobje.

@@ -2,7 +2,7 @@ import path from "node:path"
 
 import { createWorker, PSM } from "tesseract.js"
 
-import { parseLoanTsv, type LoanAnalyticalLine } from "@/lib/zavihek-045"
+import { parseAnalyticalTsv, parseLoanTsv, type LoanAnalyticalLine } from "@/lib/zavihek-045"
 
 const LANG_PATH = path.join(process.cwd(), "data/tessdata")
 
@@ -23,7 +23,10 @@ async function recognize(image: Buffer): Promise<LoanAnalyticalLine[]> {
   const worker = await sharedWorker()
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK })
   const result = await worker.recognize(image, {}, { tsv: true })
-  return parseLoanTsv(result.data.tsv ?? "")
+  const tsv = result.data.tsv ?? ""
+  const loan = parseLoanTsv(tsv)
+  if (loan.length) return loan
+  return parseAnalyticalTsv(tsv)
 }
 
 function sharedWorker() {

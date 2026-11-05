@@ -121,7 +121,7 @@ export function parseAgingGrid(grid: string[][], expected: AgingKind): AgingPart
       d90: centsOf(line[header.d90] ?? ""),
       d150: centsOf(line[header.d150] ?? ""),
       nad150: centsOf(line[header.nad150] ?? ""),
-      nerazporejeno: centsOf(line[header.nerazporejeno] ?? ""),
+      nerazporejeno: header.nerazporejeno === undefined ? 0 : centsOf(line[header.nerazporejeno] ?? ""),
     })
   }
   if (!rows.length) throw new AgingTableError(expected === "kupci" ? "V tabeli ni kupcev." : "V tabeli ni dobaviteljev.")
@@ -167,7 +167,8 @@ type HeaderMap = {
   d90: number
   d150: number
   nad150: number
-  nerazporejeno: number
+  /** Ni ga na vsakem posnetku. Manjkajoč stolpec ostane prazen. */
+  nerazporejeno?: number
   terjatve?: number
 }
 
@@ -192,12 +193,10 @@ function findHeader(grid: string[][], expected: AgingKind): HeaderMap {
     if (expected === "dobavitelji" && nameKind === "kupec") {
       throw new AgingTableError("V tej tabeli so kupci. Za dobavitelje naložite tabelo s stolpcem Dobavitelj.")
     }
-    const required = ["davcna", "stanje", "nezapadlo", "zapadlo", "do30", "d60", "d90", "d150", "nad150", "nerazporejeno"] as const
+    const required = ["davcna", "stanje", "nezapadlo", "zapadlo", "do30", "d60", "d90", "d150", "nad150"] as const
     if (required.some((key) => !columns.has(key))) {
       const who = expected === "kupci" ? "Kupec" : "Dobavitelj"
-      throw new AgingTableError(
-        `Tabela naj ima stolpce ${who}, davčna, Stanje, nezapadlo, zapadlo, do 30, 30-60, 61-90, 91-150, nad 150 in nerazporejeno.`,
-      )
+      throw new AgingTableError(agingColumnsMessage(who))
     }
     return {
       row,
@@ -211,31 +210,41 @@ function findHeader(grid: string[][], expected: AgingKind): HeaderMap {
       d90: columns.get("d90") ?? 0,
       d150: columns.get("d150") ?? 0,
       nad150: columns.get("nad150") ?? 0,
-      nerazporejeno: columns.get("nerazporejeno") ?? 0,
+      nerazporejeno: columns.get("nerazporejeno"),
       terjatve: columns.get("terjatve"),
     }
   }
   const who = expected === "kupci" ? "Kupec" : "Dobavitelj"
-  throw new AgingTableError(
-    `Tabela naj ima stolpce ${who}, davčna, Stanje, nezapadlo, zapadlo, do 30, 30-60, 61-90, 91-150, nad 150 in nerazporejeno.`,
-  )
+  throw new AgingTableError(agingColumnsMessage(who))
+}
+
+/** Posnetek zaslona pogosto nima stolpca nerazporejeno. List ga izračuna sam. */
+function agingColumnsMessage(who: string): string {
+  return `Tabela naj ima stolpce ${who}, davčna, Stanje, nezapadlo, zapadlo, do 30, 31-60, 61-90, 91-150 in nad 150.`
+}
+
+/** Ista prepoznava glave kot pri Excelu. zap. ostane svoj stolpec. */
+export function classifyAgingHeader(value: string): string | null {
+  const header = normHeader(value)
+  if (header === "zap" || header === "zap.") return "zap"
+  return classifyHeader(value)
 }
 
 function classifyHeader(value: string): string | null {
   const header = normHeader(value)
   if (!header || header === "zap" || header === "zap.") return null
-  if (header === "kupec" || header.startsWith("kupec ") || header === "kupci") return "kupec"
+  if (header === "kupec" || header === "kipec" || header.startsWith("kupec ") || header.startsWith("kipec ") || header === "kupci") return "kupec"
   if (header === "dobavitelj" || header.startsWith("dobavitelj")) return "dobavitelj"
   if (header.includes("davc") || header === "stevilka" || header.endsWith(" stevilka")) return "davcna"
   if (header.includes("terjat")) return "terjatve"
   if (header.includes("stanje")) return "stanje"
-  if (header.includes("nezapad")) return "nezapadlo"
+  if (header.includes("nezapad") || header.includes("nerapad")) return "nezapadlo"
   if (header.includes("nerazp")) return "nerazporejeno"
   if (header.includes("zapad")) return "zapadlo"
   if (/do\s*30/.test(header)) return "do30"
-  if (/31\s*-\s*60|30\s*-\s*60/.test(header)) return "d60"
-  if (/61\s*-\s*90/.test(header)) return "d90"
-  if (/91\s*-\s*150/.test(header)) return "d150"
+  if (/31\s*-\s*60|30\s*-\s*6[03]/.test(header)) return "d60"
+  if (/61\s*-\s*90|61\s*90/.test(header)) return "d90"
+  if (/91\s*-\s*150|92\s*-\s*150/.test(header)) return "d150"
   if (/nad\s*150/.test(header)) return "nad150"
   return null
 }

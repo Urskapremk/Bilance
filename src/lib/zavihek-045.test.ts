@@ -9,9 +9,14 @@ import { disclosureCells, excelSerial, findBankCell } from "./bank-form.ts"
 import { fillDhWorkbook } from "./bank-xlsx.ts"
 import {
   SHEET_045,
+  SHEET_076,
+  applyLoanSheet,
   applySheet045,
   loan045Cells,
   loan045ForPeriod,
+  loanSheetCells,
+  parseAnalyticalGrid,
+  parseAnalyticalTsv,
   parseLoanTsv,
   type LoanAnalyticalLine,
 } from "./zavihek-045.ts"
@@ -156,3 +161,136 @@ test("tsv posnetka da tri analitične vrstice", async () => {
   assert.equal(findBankCell(cells, SHEET_045, "G8"), undefined)
   assert.equal(findBankCell(cells, SHEET_045, "G9")?.euros, 25075)
 })
+
+const AGING_HEADERS = [
+  "zap.",
+  "Posojilodajalec",
+  "davčna",
+  "Stanje",
+  "Nezapadlo",
+  "Zapadlo",
+  "do 30",
+  "31-60",
+  "61-90",
+  "91-150",
+  "nad 150",
+]
+
+test("dve vrstici gresta na zavihek 045 in dve na zavihek 076", async () => {
+  const loans: LoanAnalyticalLine[] = [
+    { name: "Ana Novak d.o.o.", taxNumber: "12345678", openingCents: 10050, increaseCents: 2000 },
+    { name: "Borut Kralj", taxNumber: "87654321", closingCents: 25075 },
+  ]
+  const sheet045 = loanSheetCells(SHEET_045, loans)
+  assert.equal(findBankCell(sheet045, SHEET_045, "B8")?.text, "Ana Novak d.o.o.")
+  assert.equal(findBankCell(sheet045, SHEET_045, "C8")?.text, "12345678")
+  assert.equal(findBankCell(sheet045, SHEET_045, "D8")?.euros, 10050)
+  assert.equal(findBankCell(sheet045, SHEET_045, "E8")?.euros, 2000)
+  assert.equal(findBankCell(sheet045, SHEET_045, "F8"), undefined)
+  assert.equal(findBankCell(sheet045, SHEET_045, "G8"), undefined)
+  assert.equal(findBankCell(sheet045, SHEET_045, "B9")?.text, "Borut Kralj")
+  assert.equal(findBankCell(sheet045, SHEET_045, "D9"), undefined)
+  assert.equal(findBankCell(sheet045, SHEET_045, "G9")?.euros, 25075)
+  assert.equal(findBankCell(sheet045, SHEET_045, "B10"), undefined)
+
+  const fromScreen = parseAnalyticalGrid([
+    AGING_HEADERS,
+    ["1", "Sid banka d.d.", "12345678", "1.500,25", "1.000,00", "500,25", "500,25", "", "", "", ""],
+    ["2", "NLB d.d.", "87654321", "80,10", "", "80,10", "", "", "", "", "80,10"],
+    ["", "SKUPAJ", "", "1.580,35", "", "", "", "", "", "", ""],
+  ])
+  assert.equal(fromScreen.length, 2)
+  assert.equal(fromScreen[0]?.name, "Sid banka d.d.")
+  assert.equal(fromScreen[0]?.taxNumber, "12345678")
+  assert.equal(fromScreen[0]?.closingCents, 150025)
+  assert.equal(fromScreen[0]?.openingCents, undefined)
+  assert.equal(fromScreen[0]?.increaseCents, undefined)
+  assert.equal(fromScreen[1]?.name, "NLB d.d.")
+  assert.equal(fromScreen[1]?.closingCents, 8010)
+  assert.equal(fromScreen[1]?.decreaseCents, undefined)
+
+  const tsvLines = parseAnalyticalTsv(
+    [
+      tsvWord("Posojilojemalec", 40, 20, 120),
+      tsvWord("davčna", 220, 20, 70),
+      tsvWord("Stanje", 340, 20, 70),
+      tsvWord("Nezapadlo", 460, 20, 80),
+      tsvWord("Zapadlo", 580, 20, 70),
+      tsvWord("do 30", 700, 20, 50),
+      tsvWord("31-60", 800, 20, 50),
+      tsvWord("61-90", 900, 20, 50),
+      tsvWord("91-150", 1000, 20, 60),
+      tsvWord("nad 150", 1120, 20, 60),
+      tsvWord("Mojposoj", 40, 52, 80),
+      tsvWord("11223344", 220, 52, 80),
+      tsvWord("10,50", 340, 52, 50),
+      tsvWord("10,50", 460, 52, 50),
+      tsvWord("Drugposoj", 40, 84, 80),
+      tsvWord("44332211", 220, 84, 80),
+      tsvWord("2,25", 340, 84, 40),
+      tsvWord("2,25", 580, 84, 40),
+    ].join("\n"),
+  )
+  assert.equal(tsvLines.length, 2)
+  assert.equal(tsvLines[0]?.name, "Mojposoj")
+  assert.equal(tsvLines[0]?.closingCents, 1050)
+  assert.equal(tsvLines[0]?.openingCents, undefined)
+  assert.equal(tsvLines[1]?.name, "Drugposoj")
+  assert.equal(tsvLines[1]?.closingCents, 225)
+
+  const sheet076 = loanSheetCells(SHEET_076, fromScreen)
+  assert.equal(findBankCell(sheet076, SHEET_076, "B8")?.text, "Sid banka d.d.")
+  assert.equal(findBankCell(sheet076, SHEET_076, "C8")?.text, "12345678")
+  assert.equal(findBankCell(sheet076, SHEET_076, "G8")?.euros, 150025)
+  assert.equal(findBankCell(sheet076, SHEET_076, "D8"), undefined)
+  assert.equal(findBankCell(sheet076, SHEET_076, "E8"), undefined)
+  assert.equal(findBankCell(sheet076, SHEET_076, "H8"), undefined)
+  assert.equal(findBankCell(sheet076, SHEET_076, "B9")?.text, "NLB d.d.")
+  assert.equal(findBankCell(sheet076, SHEET_076, "G9")?.euros, 8010)
+  assert.equal(findBankCell(sheet076, SHEET_076, "D9"), undefined)
+  assert.equal(sheet076.some((cell) => cell.sheet !== SHEET_076), false)
+  assert.equal(sheet076.some((cell) => cell.euros === 100000), false)
+
+  const fortun = disclosureCells({
+    company: "Fortun d.o.o.",
+    period: "1. 1. 2026–31. 8. 2026",
+    currentDate: "31. 8. 2026",
+    legalForm: "doo",
+    balance: { current: { "046": 11100, "077": 22200 }, previous: {} },
+    income: {},
+  })
+  const kept = applyLoanSheet(applyLoanSheet(fortun, SHEET_045, []), SHEET_076, null)
+  assert.equal(findBankCell(kept, SHEET_045, "E18")?.euros, 11100)
+  assert.equal(findBankCell(kept, SHEET_076, "E18")?.euros, 22200)
+  const records = [
+    { company: "Fortun d.o.o.", period: "1. 1. 2025–31. 12. 2025", lines: fromScreen },
+    { company: "Fortun d.o.o.", period: "1. 1. 2026–31. 8. 2026", lines: [] as LoanAnalyticalLine[] },
+  ]
+  assert.equal(loan045ForPeriod(records, "FORTUN d.o.o.", "1. 1. 2026–31. 8. 2026")?.lines.length, 0)
+  assert.equal(loan045ForPeriod(records, "Fortun d.o.o.", "1. 1. 2025–31. 12. 2025")?.lines[0]?.name, "Sid banka d.d.")
+
+  const applied = applyLoanSheet(applyLoanSheet(fortun, SHEET_045, loans), SHEET_076, fromScreen)
+  assert.equal(findBankCell(applied, SHEET_045, "E18"), undefined)
+  assert.equal(findBankCell(applied, SHEET_076, "E18"), undefined)
+  assert.equal(findBankCell(applied, SHEET_045, "D8")?.euros, 10050)
+  assert.equal(findBankCell(applied, SHEET_076, "G8")?.euros, 150025)
+
+  const filled = await fillDhWorkbook(await readFile(TEMPLATE), applied, { dropStaleText: true })
+  const zip = await JSZip.loadAsync(filled)
+  const loansXml = await zip.file("xl/worksheets/sheet14.xml")!.async("string")
+  const liabilitiesXml = await zip.file("xl/worksheets/sheet22.xml")!.async("string")
+  assert.match(loansXml, /<c r="D8"[^>]*><v>100\.50<\/v><\/c>/)
+  assert.match(loansXml, /<c r="E8"[^>]*><v>20<\/v><\/c>/)
+  assert.match(loansXml, /<c r="G9"[^>]*><v>250\.75<\/v><\/c>/)
+  assert.match(loansXml, /Ana Novak d\.o\.o\./)
+  assert.match(liabilitiesXml, /<c r="G8"[^>]*><v>1500\.25<\/v><\/c>/)
+  assert.match(liabilitiesXml, /<c r="G9"[^>]*><v>80\.10<\/v><\/c>/)
+  assert.match(liabilitiesXml, /Sid banka d\.d\./)
+  assert.match(liabilitiesXml, /NLB d\.d\./)
+  assert.doesNotMatch(liabilitiesXml, /<c r="E8"[^>]*>\s*<v>/)
+  assert.doesNotMatch(liabilitiesXml, /<c r="D18"[^>]*>\s*<v>/)
+})
+
+function tsvWord(text: string, x: number, y: number, w: number): string {
+  return ["5", "1", "1", "1", "1", "1", String(x), String(y), String(w), "16", "90", text].join("\t")
+}

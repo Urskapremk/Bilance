@@ -6,7 +6,7 @@ import { disclosureCells, type BankStatement } from "@/lib/bank-form"
 import { fillDhWorkbook } from "@/lib/bank-xlsx"
 import { sanitizeAgingParties } from "@/lib/partner-aging"
 import { disclosureWorkbookName, isDisclosureBank } from "@/lib/razkritja"
-import { applySheet045, sanitizeLoanLines } from "@/lib/zavihek-045"
+import { applySheet045, applySheet076, sanitizeLoanLines } from "@/lib/zavihek-045"
 
 export const runtime = "nodejs"
 
@@ -26,6 +26,7 @@ export async function POST(request: Request) {
     kupci?: unknown
     dobavitelji?: unknown
     posojila045?: unknown
+    obveznosti076?: unknown
   } | null
   const statement = body?.statement
   if (!isDisclosureBank(body?.bank)) {
@@ -40,20 +41,24 @@ export async function POST(request: Request) {
     const kupci = sanitizeAgingParties(body?.kupci)
     const dobavitelji = sanitizeAgingParties(body?.dobavitelji)
     const posojila045 = sanitizeLoanLines(body?.posojila045)
+    const obveznosti076 = sanitizeLoanLines(body?.obveznosti076)
     const workbook = await fillDhWorkbook(
       template,
-      applySheet045(
-        disclosureCells(
-          {
-            ...statement,
-            registration: statement.registration || statement.publicPrevious?.registration || "",
-          },
-          {
-            ...(kupci?.length ? { kupci } : {}),
-            ...(dobavitelji?.length ? { dobavitelji } : {}),
-          },
+      applySheet076(
+        applySheet045(
+          disclosureCells(
+            {
+              ...statement,
+              registration: statement.registration || statement.publicPrevious?.registration || "",
+            },
+            {
+              ...(kupci?.length ? { kupci } : {}),
+              ...(dobavitelji?.length ? { dobavitelji } : {}),
+            },
+          ),
+          posojila045,
         ),
-        posojila045,
+        obveznosti076,
       ),
       { dropStaleText: true },
     )
