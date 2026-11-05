@@ -50,6 +50,46 @@ test("končna bilanca se zapiše na disk in se prebere nazaj", async () => {
   }
 })
 
+test("zapis drugega obdobja obdrži prejšnjo kartico, tudi če pride njen id", async () => {
+  const company = "Lunin d.o.o."
+  const year2026: Statement = {
+    ...statement,
+    company,
+    period: "1. 1. 2026–31. 8. 2026",
+    currentDate: "31. 8. 2026",
+    sourceName: "lunin-2026.pdf",
+    balance: { current: { "001": 32121395 }, previous: {} },
+    income: { "186": 4723730 },
+  }
+  const year2025: Statement = {
+    ...year2026,
+    period: "1. 1. 2025–31. 12. 2025",
+    currentDate: "31. 12. 2025",
+    sourceName: "lunin-2025.pdf",
+    balance: { current: { "001": 100 }, previous: {} },
+    income: { "186": 50 },
+  }
+  const pdf2026 = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])
+  const pdf2025 = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x32])
+  const first = await writeArchive(year2026, pdf2026, year2026.sourceName)
+  const second = await writeArchive(year2025, pdf2025, year2025.sourceName, { id: first.id })
+  try {
+    assert.notEqual(second.id, first.id)
+    assert.equal(second.period, "1. 1. 2025–31. 12. 2025")
+    const kept = await readArchiveStatement(first.id)
+    assert.equal(kept.period, "1. 1. 2026–31. 8. 2026")
+    assert.equal(kept.balance.current["001"], 32121395)
+    assert.equal(kept.income["186"], 4723730)
+    const added = await readArchiveStatement(second.id)
+    assert.equal(added.balance.current["001"], 100)
+    const listed = (await listArchiveFiles()).filter((item) => item.company === company)
+    assert.deepEqual(listed.map((item) => item.period).sort(), [year2025.period, year2026.period].sort())
+  } finally {
+    await rm(path.join(process.cwd(), "data", "arhiv", first.id), { recursive: true, force: true })
+    await rm(path.join(process.cwd(), "data", "arhiv", second.id), { recursive: true, force: true })
+  }
+})
+
 test("neveljaven arhivski naslov se ne prebere", async () => {
   await assert.rejects(() => readArchiveStatement("../tajno"), /ni veljaven/)
 })

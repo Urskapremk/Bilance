@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 
 import { PERIOD_FORMS } from "@/lib/archive"
-import { keepNewestByPeriod, samePeriod } from "@/lib/archive-period"
+import { archiveSaveTarget, keepNewestByPeriod, samePeriod } from "@/lib/archive-period"
 import { clientKey } from "@/lib/clients"
 import type { Statement } from "@/lib/trial"
 
@@ -41,18 +41,15 @@ export async function writeArchive(
   const requested = taken && clientKey(taken.company) !== clientKey(statement.company) ? undefined : requestedRaw
   const savedAt = options?.savedAt && !Number.isNaN(Date.parse(options.savedAt)) ? new Date(options.savedAt).toISOString() : undefined
   const matches = metas.filter((item) => samePeriod(item, statement))
-  const preferred = requested ? matches.find((item) => item.id === requested) : undefined
-  const newest = keepNewestByPeriod(matches).kept[0]
-  const open =
-    requested && !preferred ? metas.find((item) => item.id === requested && clientKey(item.company) === clientKey(statement.company)) : undefined
-  const target = preferred ?? newest ?? open
+  const target = archiveSaveTarget(metas, statement, requested)
   if (target) {
     for (const old of matches) {
       if (old.id !== target.id) await removeArchive(old.id)
     }
     return storeArchive(target.id, statement, pdf, sourceName, target, savedAt)
   }
-  return storeArchive(requested ?? crypto.randomUUID(), statement, pdf, sourceName, undefined, savedAt)
+  const reuse = requested && !metas.some((item) => item.id === requested) ? requested : crypto.randomUUID()
+  return storeArchive(reuse, statement, pdf, sourceName, undefined, savedAt)
 }
 
 async function storeArchive(

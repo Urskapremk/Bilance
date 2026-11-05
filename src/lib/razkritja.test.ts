@@ -65,6 +65,15 @@ test("znani zneski AOP padejo v celice razkritij Delavske hranilnice", async () 
   assert.doesNotMatch(xml, /<c r="H11"[^>]*>\s*<v>/)
 })
 
+test("dve obdobji iste stranke dobita različni datoteki razkritij", () => {
+  const company = "FORTUN d.o.o."
+  const year2025 = disclosureWorkbookName(company, "1. 1. 2025–31. 12. 2025", "31. 12. 2025")
+  const year2026 = disclosureWorkbookName(company, "1. 1. 2026–31. 8. 2026", "31. 8. 2026")
+  assert.equal(year2025, "FORTUN_d.o.o._Razkritja_Delavska_hranilnica_01.01.2025-31.12.2025.xlsx")
+  assert.equal(year2026, "FORTUN_d.o.o._Razkritja_Delavska_hranilnica_01.01.2026-31.08.2026.xlsx")
+  assert.notEqual(year2025, year2026)
+})
+
 test("prazna bilanca ne izmisli zneskov", async () => {
   const cells = disclosureCells({
     company: "Prazna d.o.o.",

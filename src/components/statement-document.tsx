@@ -4,8 +4,10 @@ import { Check } from "lucide-react"
 import Image from "next/image"
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
 
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { comparePeriodDesc } from "@/lib/archive-period"
 import { chart, descendantLeaves, isCalculated } from "@/lib/charts"
 import { isImbalanceWarning, rollup, reviewColumn, sameDisplayedTotal, sheetWarnings } from "@/lib/compute"
 import { DavcniPanel } from "@/components/davcni-panel"
@@ -32,6 +34,11 @@ export function StatementDocument({
   onLegalForm,
   checks,
   onToggleCheck,
+  onAddPeriod,
+  addingPeriod,
+  savedPeriods,
+  openPeriodId,
+  onOpenPeriod,
 }: {
   statement: Statement
   view: "bilanca" | "izkaz"
@@ -45,6 +52,11 @@ export function StatementDocument({
   onLegalForm?: (form: LegalForm) => void
   checks?: ReadonlySet<string>
   onToggleCheck?: (obrazec: "bilanca" | "izkaz", aop: string) => void
+  onAddPeriod?: () => void
+  addingPeriod?: boolean
+  savedPeriods?: SavedPeriodLink[]
+  openPeriodId?: string
+  onOpenPeriod?: (id: string) => void
 }) {
   const form = legalFormOf(statement)
   const scheme = legalFormOption(form)
@@ -134,7 +146,17 @@ export function StatementDocument({
                 Obdobje {statement.period}. Stanje na dan {statement.currentDate}. Prikazano je samo tekoče leto. Znesek
                 popravite v vrstici, seštevki se osvežijo takoj. Zneski v evrih.
               </p>
-              {onPeriod ? <PeriodFields period={statement.period} onCommit={onPeriod} /> : null}
+              {onPeriod ? (
+                <PeriodFields
+                  period={statement.period}
+                  onCommit={onPeriod}
+                  onAddPeriod={onAddPeriod}
+                  addingPeriod={addingPeriod}
+                  savedPeriods={savedPeriods}
+                  openPeriodId={openPeriodId}
+                  onOpenPeriod={onOpenPeriod}
+                />
+              ) : null}
             </div>
             <p
               className={cn(
@@ -570,7 +592,25 @@ function StatementRow({
   )
 }
 
-function PeriodFields({ period, onCommit }: { period: string; onCommit: (start: string, end: string) => void }) {
+export type SavedPeriodLink = { id: string; period: string }
+
+export function PeriodFields({
+  period,
+  onCommit,
+  onAddPeriod,
+  addingPeriod = false,
+  savedPeriods = [],
+  openPeriodId,
+  onOpenPeriod,
+}: {
+  period: string
+  onCommit: (start: string, end: string) => void
+  onAddPeriod?: () => void
+  addingPeriod?: boolean
+  savedPeriods?: SavedPeriodLink[]
+  openPeriodId?: string
+  onOpenPeriod?: (id: string) => void
+}) {
   const parts = splitPeriod(period)
   const [start, setStart] = useState(parts?.start ?? "")
   const [end, setEnd] = useState(parts?.end ?? "")
@@ -624,7 +664,61 @@ function PeriodFields({ period, onCommit }: { period: string; onCommit: (start: 
             onBlur={() => commit(start, end)}
           />
         </div>
+        {onAddPeriod ? (
+          <Button type="button" variant="outline" onClick={onAddPeriod} disabled={addingPeriod}>
+            {addingPeriod ? "Shranjujem to obdobje…" : "Dodaj bilanco za drugo obdobje"}
+          </Button>
+        ) : null}
       </div>
+      {onAddPeriod ? (
+        <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+          To obdobje ostane shranjeno. Odpre se prazna bilanca iste stranke. Vanjo vpišete Od in Do in dodate bruto
+          bilanco tega obdobja. Razkritja se nato napolnijo iz te odprte bilance.
+        </p>
+      ) : null}
+      <SavedPeriodList items={savedPeriods} openPeriodId={openPeriodId} onOpen={onOpenPeriod} />
+    </div>
+  )
+}
+
+function SavedPeriodList({
+  items,
+  openPeriodId,
+  onOpen,
+}: {
+  items: SavedPeriodLink[]
+  openPeriodId?: string
+  onOpen?: (id: string) => void
+}) {
+  if (items.length === 0) return null
+  const sorted = [...items].sort((left, right) => comparePeriodDesc(left.period, right.period))
+  return (
+    <div className="mt-4">
+      <p className="text-sm text-navy">Shranjena obdobja te stranke. Vsako obdobje ima svojo bilanco.</p>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {sorted.map((item) => {
+          const open = item.id === openPeriodId
+          return (
+            <li key={item.id}>
+              {open ? (
+                <span className="inline-flex items-center gap-2 rounded-lg border border-gold bg-accent px-3 py-1.5 text-sm text-navy">
+                  {item.period}
+                  <span className="text-xs tracking-wide text-gold uppercase">Odprto</span>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onOpen?.(item.id)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-navy hover:border-gold"
+                >
+                  {item.period}
+                  <span className="text-xs tracking-wide text-gold uppercase">Odpri</span>
+                </button>
+              )}
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

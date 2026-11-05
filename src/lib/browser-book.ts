@@ -1,6 +1,6 @@
 import type { AccountFormula, AccountRow } from "@/lib/account-map"
 import { mergeFormulas } from "@/lib/account-map"
-import { keepNewestByPeriod, samePeriod } from "@/lib/archive-period"
+import { archiveSaveTarget, keepNewestByPeriod, samePeriod } from "@/lib/archive-period"
 import { clientKey, normalizeClientName, sameClient, SAMPLE_CLIENT } from "@/lib/clients"
 import { parseLegalForm, type LegalForm } from "@/lib/legal-form"
 import type { Statement } from "@/lib/trial"
@@ -119,6 +119,8 @@ export type LastPlace = {
   company: string
   phase: "primer" | "osnutek" | "arhiv"
   archiveId?: string
+  /** Prazna bilanca za drugo obdobje, ki še čaka na bruto bilanco. */
+  newPeriod?: string
 }
 
 const LAST_PLACE_KEY = "zadnja"
@@ -128,19 +130,30 @@ export async function readLastPlace(): Promise<LastPlace | null> {
   const stored = await get<unknown>(db, "kazalo", LAST_PLACE_KEY)
   db.close()
   if (!stored || typeof stored !== "object") return null
-  const record = stored as { company?: unknown; phase?: unknown; archiveId?: unknown }
+  const record = stored as { company?: unknown; phase?: unknown; archiveId?: unknown; newPeriod?: unknown }
   const company = typeof record.company === "string" ? normalizeClientName(record.company) : ""
   if (!company) return null
   const phase = record.phase === "arhiv" || record.phase === "osnutek" || record.phase === "primer" ? record.phase : "osnutek"
   const archiveId = typeof record.archiveId === "string" && record.archiveId ? record.archiveId : undefined
-  return { company, phase, archiveId }
+  const newPeriod = typeof record.newPeriod === "string" && record.newPeriod.trim() ? record.newPeriod : undefined
+  return { company, phase, archiveId, newPeriod }
 }
 
 export async function writeLastPlace(place: LastPlace): Promise<void> {
   const company = normalizeClientName(place.company)
   if (!company) return
   const db = await openRegistry()
-  await put(db, "kazalo", { company, phase: place.phase, archiveId: place.archiveId }, LAST_PLACE_KEY)
+  await put(
+    db,
+    "kazalo",
+    {
+      company,
+      phase: place.phase,
+      archiveId: place.archiveId,
+      ...(place.phase !== "arhiv" && place.newPeriod ? { newPeriod: place.newPeriod } : {}),
+    },
+    LAST_PLACE_KEY,
+  )
   db.close()
 }
 
@@ -212,9 +225,7 @@ export async function saveStoredPeriod(
   const existing = await getAll<StoredPeriod>(db, "obdobja")
   db.close()
   const matches = existing.filter((item) => samePeriod(item, { company: name, period: statement.period }))
-  const open = openId ? existing.find((item) => item.id === openId) : undefined
-  const openIsThisPeriod = open ? matches.some((item) => item.id === open.id) : false
-  const target = (openIsThisPeriod ? open : undefined) ?? keepNewestByPeriod(matches).kept[0] ?? open
+  const target = archiveSaveTarget(existing, { company: name, period: statement.period }, openId)
   if (target) {
     const registry = await openRegistry()
     await put(registry, "kazalo", target.company || name, target.id)
@@ -224,8 +235,7 @@ export async function saveStoredPeriod(
     }
     const saved = await replaceStoredPeriod(name, target.id, { ...statement, company: target.company || name }, pdf)
     if (saved) {
-      const replaced = matches.map((item) => item.id)
-      if (openId && openId !== saved.id) replaced.push(openId)
+      const replaced = matches.map((item) => item.id).filter((id) => id !== saved.id)
       await pointLastPlaceAt(saved.id, replaced)
       return saved.forms?.length ? saved : { ...saved, forms }
     }

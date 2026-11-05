@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "re
 
 import { FormulaDialog } from "@/components/formula-dialog"
 import { PdfPreview } from "@/components/pdf-preview"
-import { StatementDocument } from "@/components/statement-document"
+import { PeriodFields, StatementDocument, type SavedPeriodLink } from "@/components/statement-document"
 import { formulasForEditor, type AccountFormula, type AccountRow } from "@/lib/account-map"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,6 +29,7 @@ import {
   updateArchive,
   type ArchiveMeta,
 } from "@/lib/archive"
+import { comparePeriodDesc, emptyPeriodStatement, periodCountLabel, previousFullYear } from "@/lib/archive-period"
 import { attachPublicFiling } from "@/lib/ajpes-public"
 import { dhApplicationName, dhWorkbookName, hasDhBankPack } from "@/lib/bank-form"
 import { DISCLOSURE_BANKS, disclosureWorkbookName, type DisclosureBankId } from "@/lib/razkritja"
@@ -49,6 +50,7 @@ import { inferLegalForm, legalFormOf, type LegalForm } from "@/lib/legal-form"
 import type { DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
 import { rollup, sheetWarnings } from "@/lib/compute"
+import { splitPeriod } from "@/lib/format"
 import { accountsForSearch, applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
@@ -132,6 +134,8 @@ export function BilanceApp() {
   const [formulaError, setFormulaError] = useState<string | null>(null)
   const [savingFormulas, setSavingFormulas] = useState(false)
   const [opened, setOpened] = useState(false)
+  const [freshPeriod, setFreshPeriod] = useState(false)
+  const [addingPeriod, setAddingPeriod] = useState(false)
   const [checks, setChecks] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const cardInputRef = useRef<HTMLInputElement>(null)
@@ -153,7 +157,11 @@ export function BilanceApp() {
   const sampleTextRef = useRef("")
   const persistTimer = useRef<number | null>(null)
   const archiveIdRef = useRef<string | undefined>(undefined)
+  const archivePeriodRef = useRef<string | undefined>(undefined)
   const archivePdfRef = useRef<ArrayBuffer | null>(null)
+  const freshPeriodRef = useRef(false)
+  const addingPeriodRef = useRef(false)
+  const pendingPeriods = useRef(new Map<string, Statement>())
   const statementRef = useRef(statement)
   const checkScope = useRef({ company: initialStatement.company, period: initialStatement.period })
   const checkLoad = useRef(0)
@@ -250,8 +258,9 @@ export function BilanceApp() {
       company: activeClient,
       phase,
       archiveId: phase === "arhiv" ? archiveIdRef.current : undefined,
+      newPeriod: freshPeriod ? statement.period : undefined,
     }).catch(() => undefined)
-  }, [opened, activeClient, phase])
+  }, [opened, activeClient, phase, freshPeriod, statement.period])
 
   useEffect(() => {
     let cancel = false
@@ -262,6 +271,28 @@ export function BilanceApp() {
         const place = await readLastPlace().catch(() => null)
         if (cancel) return
         if (!place || place.phase === "primer" || sameClient(place.company, SAMPLE_CLIENT)) return
+        const freshDates = place.newPeriod ? splitPeriod(place.newPeriod) : null
+        if (freshDates) {
+          const form = await readStoredLegalForm(place.company).catch(() => null)
+          const next = emptyPeriodStatement(
+            {
+              company: place.company,
+              period: place.newPeriod ?? "",
+              currentDate: freshDates.end,
+              previousDate: "",
+              sourceName: "",
+              balance: { current: {}, previous: {} },
+              income: {},
+              notes: [],
+              warnings: [],
+              legalForm: form ?? inferLegalForm(place.company) ?? undefined,
+            },
+            freshDates.start,
+            freshDates.end,
+          )
+          presentEmptyPeriod(next)
+          return
+        }
         if (place.phase === "arhiv" && place.archiveId) {
           archiveIdRef.current = place.archiveId
           const openedArchive = await openArchived(place.archiveId)
@@ -307,7 +338,41 @@ export function BilanceApp() {
 
   function clearArchive() {
     archiveIdRef.current = undefined
+    archivePeriodRef.current = undefined
     archivePdfRef.current = null
+  }
+
+  function rememberArchive(id: string, period: string) {
+    archiveIdRef.current = id
+    archivePeriodRef.current = period.trim()
+  }
+
+  function markFresh(active: boolean) {
+    freshPeriodRef.current = active
+    setFreshPeriod(active)
+  }
+
+  function presentEmptyPeriod(next: Statement) {
+    if (persistTimer.current) window.clearTimeout(persistTimer.current)
+    pendingPeriods.current.set(clientKey(next.company), next)
+    workspaces.current.delete(clientKey(next.company))
+    markFresh(true)
+    statementRef.current = next
+    setStatement(next)
+    setActiveClient(next.company)
+    setBlank(true)
+    setLinked(false)
+    setKonti([])
+    textRef.current = ""
+    draftRef.current = null
+    clearArchive()
+    phaseRef.current = "osnutek"
+    setPhase("osnutek")
+    setPdfName("")
+    setError(null)
+    setSaveAsk(false)
+    setSavedMeta(null)
+    setFormulaOpen(false)
   }
 
   function openPdf(): ArrayBuffer | null {
@@ -345,6 +410,17 @@ export function BilanceApp() {
   function persistOpenStatement(next: Statement, nextKonti: AccountRow[] = kontiRef.current) {
     if (persistTimer.current) window.clearTimeout(persistTimer.current)
     persistTimer.current = window.setTimeout(() => {
+      const savedPeriod = archivePeriodRef.current
+      const periodMoved = Boolean(savedPeriod && next.period.trim() !== savedPeriod)
+      if (phaseRef.current === "arhiv" && archiveIdRef.current && periodMoved) {
+        const pdf = archivePdfRef.current
+        archiveIdRef.current = undefined
+        archivePeriodRef.current = undefined
+        archivePdfRef.current = null
+        phaseRef.current = "osnutek"
+        setPhase("osnutek")
+        if (pdf) draftRef.current = { statement: next, pdf }
+      }
       const id = phaseRef.current === "arhiv" ? archiveIdRef.current : undefined
       if (id) {
         void updateArchive(id, next)
@@ -534,6 +610,7 @@ export function BilanceApp() {
       checkScope.current = { company: next.company, period }
       void writeChecks(next.company, period, checks).catch(() => undefined)
     }
+    if (freshPeriodRef.current) pendingPeriods.current.set(clientKey(next.company), next)
     rememberWorkspace(next)
     persistOpenStatement(next)
   }
@@ -559,6 +636,7 @@ export function BilanceApp() {
     setStatement(initialStatement)
     showPdf(DEFAULT_PDF, initialStatement.sourceName)
     setActiveClient(SAMPLE_CLIENT)
+    phaseRef.current = "primer"
     setPhase("primer")
     setBlank(false)
     setLinked(true)
@@ -568,6 +646,8 @@ export function BilanceApp() {
     setFormulaOpen(false)
     draftRef.current = null
     clearArchive()
+    markFresh(false)
+    pendingPeriods.current.delete(clientKey(SAMPLE_CLIENT))
     setSaveAsk(false)
   }
 
@@ -582,10 +662,12 @@ export function BilanceApp() {
     setBlank(false)
     setLinked(true)
     setError(null)
+    markFresh(false)
+    pendingPeriods.current.delete(clientKey(workspace.statement.company))
     setKonti(workspace.konti)
     setFormulaOpen(false)
     if (workspace.phase === "arhiv") {
-      archiveIdRef.current = workspace.archiveId
+      if (workspace.archiveId) rememberArchive(workspace.archiveId, workspace.statement.period)
       archivePdfRef.current = workspace.pdf
       draftRef.current = null
     } else {
@@ -653,7 +735,13 @@ export function BilanceApp() {
         throw new Error(data?.error ?? "Bruto bilance ni bilo mogoče prebrati.")
       }
       const pdf = (await file.arrayBuffer()).slice(0)
-      const named = namedCompany ? statementForClient(data.statement, namedCompany) : data.statement
+      const keepDates = freshPeriodRef.current
+      const base = namedCompany ? statementForClient(data.statement, namedCompany) : data.statement
+      const named = keepDates ? keepStatementDates(base) : base
+      if (keepDates) {
+        markFresh(false)
+        pendingPeriods.current.delete(clientKey(named.company))
+      }
       const draft = { statement: named, pdf }
       draftRef.current = draft
       fileRef.current = file
@@ -886,6 +974,11 @@ export function BilanceApp() {
   async function selectClient(name: string) {
     setClientsOpen(false)
     setClientQuery("")
+    const pending = pendingPeriods.current.get(clientKey(name))
+    if (pending) {
+      presentEmptyPeriod(pending)
+      return
+    }
     const cached = workspaces.current.get(clientKey(name))
     if (cached) {
       applyWorkspace(cached)
@@ -937,9 +1030,11 @@ export function BilanceApp() {
     setFormulaOpen(false)
     setLinked(false)
     setError(null)
+    phaseRef.current = "osnutek"
     setPhase("osnutek")
     draftRef.current = null
     clearArchive()
+    markFresh(false)
     setSaveAsk(false)
   }
 
@@ -969,6 +1064,34 @@ export function BilanceApp() {
     }
   }
 
+  async function addAnotherPeriod() {
+    if (addingPeriodRef.current || busy) return
+    addingPeriodRef.current = true
+    setAddingPeriod(true)
+    setError(null)
+    const current = statementRef.current
+    try {
+      if (persistTimer.current) window.clearTimeout(persistTimer.current)
+      if (!sameClient(current.company, SAMPLE_CLIENT)) {
+        const pdf = openPdf()
+        if (!pdf) {
+          setError("To bilanco najprej dopolnite s PDF. Potem se odpre prazna bilanca za drugo obdobje.")
+          return
+        }
+        await saveArchive(current, pdf.slice(0), phaseRef.current === "arhiv" ? archiveIdRef.current : undefined)
+        setArchiveItems(await listArchive().catch(() => archiveItems))
+      }
+      const dates = previousFullYear(current.period)
+      const next = emptyPeriodStatement(current, dates?.start ?? "", dates?.end ?? "")
+      presentEmptyPeriod(next)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "To obdobje ni shranjeno. Odprta bilanca ostane na zaslonu.")
+    } finally {
+      addingPeriodRef.current = false
+      setAddingPeriod(false)
+    }
+  }
+
   function askToSave() {
     if (savingRef.current || phaseRef.current === "primer" || !openPdf()) return
     setSaveError(null)
@@ -995,7 +1118,7 @@ export function BilanceApp() {
       const meta = await saveArchive(current, pdf.slice(0), phaseRef.current === "arhiv" ? archiveIdRef.current : undefined)
       if (!meta) throw new Error("Shranjene bilance ni bilo mogoče zapisati.")
       setArchiveItems(await listArchive())
-      archiveIdRef.current = meta.id
+      rememberArchive(meta.id, meta.period)
       archivePdfRef.current = pdf.slice(0)
       phaseRef.current = "arhiv"
       setPhase("arhiv")
@@ -1041,8 +1164,10 @@ export function BilanceApp() {
       setStatement(statement)
       statementRef.current = statement
       setActiveClient(stored.statement.company)
-      archiveIdRef.current = id
+      rememberArchive(id, stored.statement.period)
       archivePdfRef.current = stored.pdf.slice(0)
+      markFresh(false)
+      pendingPeriods.current.delete(clientKey(stored.statement.company))
       textRef.current = ""
       cacheWorkspace({
         statement,
@@ -1250,15 +1375,26 @@ export function BilanceApp() {
   }
 
   function clientPeriod(name: string) {
+    const saved = archiveItems
+      .filter((item) => sameClient(item.company, name))
+      .sort((left, right) => comparePeriodDesc(left.period, right.period))
+    if (saved.length > 2) return periodCountLabel(saved.length)
+    if (saved.length > 0) return saved.map((item) => item.period).join(" · ")
+    const pending = pendingPeriods.current.get(clientKey(name))
+    if (pending?.period) return pending.period
     const cached = workspaces.current.get(clientKey(name))
     if (cached) return cached.statement.period
-    const archived = archiveItems.find((item) => sameClient(item.company, name))
-    if (archived) return archived.period
     if (sameClient(name, SAMPLE_CLIENT)) return initialStatement.period
     if (sameClient(name, activeClient) && !blank) return statement.period
     return "Še brez bilance"
   }
 
+  const savedForClient: SavedPeriodLink[] = archiveItems
+    .filter((item) => sameClient(item.company, activeClient))
+    .map((item) => ({ id: item.id, period: item.period }))
+  const openPeriodId = freshPeriod
+    ? undefined
+    : savedForClient.find((item) => item.period.trim() === statement.period.trim())?.id
   const visibleClients = filterClients(mergeClients([...clients, activeClient]), clientQuery)
   const adremaClient = hasDhBankPack(activeClient)
   const adremaReady =
@@ -1379,15 +1515,40 @@ export function BilanceApp() {
                 Bilance
                 <span className="h-px w-8 bg-gold" aria-hidden="true" />
               </p>
-              <h1 className="font-heading text-4xl leading-tight font-semibold text-navy md:text-5xl">Nova bilanca</h1>
+              <h1 className="font-heading text-4xl leading-tight font-semibold text-navy md:text-5xl">
+                {freshPeriod ? activeClient : "Nova bilanca"}
+              </h1>
               <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
-                Za stranko {activeClient} še ni bruto bilance. Dodajte PDF v stolpcu desno, pa se iz njega sestavita
-                bilanca stanja in izkaz poslovnega izida.
+                {freshPeriod
+                  ? "To je prazna bilanca za drugo obdobje. Shranjena obdobja ostanejo. Vpišite Od in Do, nato dodajte PDF bruto bilance. Razkritja se napolnijo iz te bilance, ko je naložena."
+                  : `Za stranko ${activeClient} še ni bruto bilance. Dodajte PDF v stolpcu desno, pa se iz njega sestavita bilanca stanja in izkaz poslovnega izida.`}
               </p>
+              {freshPeriod ? (
+                <div className="mx-auto mt-6 max-w-xl text-left">
+                  <PeriodFields
+                    period={statement.period}
+                    onCommit={editPeriod}
+                    savedPeriods={savedForClient}
+                    onOpenPeriod={(id) => void openArchived(id)}
+                  />
+                  {statement.period ? (
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Vpisano obdobje je {statement.period}. Datuma lahko spremenite, preden dodate PDF.
+                    </p>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">Vpišite Od in Do, na primer 1. 1. 2025 in 31. 12. 2025.</p>
+                  )}
+                </div>
+              ) : null}
               <Button type="button" className="mt-8" onClick={() => choosePdf(activeClient)} disabled={busy}>
                 <FileUp />
                 {busy ? "Berem konte…" : "Dodaj PDF"}
               </Button>
+              {freshPeriod && sameClient(activeClient, SAMPLE_CLIENT) ? (
+                <Button type="button" variant="outline" className="mt-3" onClick={restoreSample}>
+                  Odpri vzorčno bilanco
+                </Button>
+              ) : null}
             </div>
           </section>
         ) : (
@@ -1404,6 +1565,11 @@ export function BilanceApp() {
             onLegalForm={(form) => void changeLegalForm(form)}
             checks={new Set(checks)}
             onToggleCheck={toggleCheck}
+            onAddPeriod={() => void addAnotherPeriod()}
+            addingPeriod={addingPeriod}
+            savedPeriods={savedForClient}
+            openPeriodId={openPeriodId}
+            onOpenPeriod={(id) => void openArchived(id)}
           />
         )}
 
@@ -1440,12 +1606,14 @@ export function BilanceApp() {
             </p>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {blank
-                ? "Nova stranka čaka na svojo bruto bilanco. Dodajte PDF ali jo ustvarite z Nova stranka."
+                ? freshPeriod
+                  ? "Prazna bilanca za drugo obdobje. Od in Do vpišite na levi, PDF dodate tukaj. Shranjena obdobja odprete pri datumih."
+                  : "Nova stranka čaka na svojo bruto bilanco. Dodajte PDF ali jo ustvarite z Nova stranka."
                 : linked
                   ? phase === "arhiv"
-                    ? "Shranjeno obdobje. Obdobje vpišite v polji Od in Do. Znesek tekočega leta popravite v vrstici. Shrani zapiše to bilanco, takšno kot je zdaj."
+                    ? "Shranjeno obdobje. Znesek tekočega leta popravite v vrstici. Shrani zapiše to bilanco. Drugo obdobje dodate pri datumih, to obdobje ostane."
                     : phase === "osnutek"
-                      ? "Bilanca je naložena. Obdobje vpišite v polji Od in Do. Najprej jo preglejte. Pravila odprejo okno, ki ga primete za naslov in premaknete, da vidite bilanco. Ko je v redu, Shrani vpraša, ali se pod to stranko zapišeta izvorni PDF ter oba obrazca obdobja."
+                      ? "Bilanca je naložena. Najprej jo preglejte. Drugo obdobje dodate pri datumih. Shrani zapiše to obdobje. Za isto Od in Do ostane zadnja shranjena bilanca."
                       : "Obrazec je sestavljen iz tega izpisa. Popravek zneska v tekočem letu se na njem pokaže takoj."
                   : "Ta datoteka je odprta, obrazec pa še vedno kaže zadnjo uspešno prebrano bilanco."}
             </p>
@@ -1547,6 +1715,16 @@ export function BilanceApp() {
                 <Archive />
                 Arhiv{archiveItems.length > 0 ? ` (${archiveItems.length})` : ""}
               </Button>
+              {!blank ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void addAnotherPeriod()}
+                  disabled={addingPeriod || busy || savingArchive}
+                >
+                  {addingPeriod ? "Shranjujem to obdobje…" : "Dodaj bilanco za drugo obdobje"}
+                </Button>
+              ) : null}
               <div className="basis-full min-w-0 rounded-lg border border-border p-3">
                 <fieldset>
                   <legend className="text-xs font-medium tracking-[0.2em] text-gold uppercase">Banka</legend>
@@ -1575,7 +1753,17 @@ export function BilanceApp() {
                     <FileSpreadsheet />
                     {exporting === "razkritja" ? "Pripravljam razkritja…" : "Razkritja"}
                   </Button>
-                  {blank ? <p className="text-sm text-muted-foreground">Najprej odprite bilanco.</p> : null}
+                  {blank ? (
+                    <p className="text-sm text-muted-foreground">
+                      {freshPeriod
+                        ? "Razkritja se napolnijo, ko je bruto bilanca tega obdobja naložena."
+                        : "Najprej odprite bilanco."}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Razkritja se napolnijo iz odprte bilance {statement.period}. Datoteka dobi ime stranke in tega obdobja.
+                    </p>
+                  )}
                 </div>
               </div>
               {adremaClient ? (
@@ -1702,7 +1890,7 @@ export function BilanceApp() {
           <DialogHeader>
             <DialogTitle className="text-2xl text-navy">Arhiv končnih bilanc</DialogTitle>
             <DialogDescription>
-              Vsaka stranka hrani svoja obdobja v svoji bazi. Za isto obdobje ostane zadnja shranjena bilanca. Pri obdobju sta shranjena izvorni PDF ter oba obrazca. Znesek v odprtem obdobju popravite na obrazcu.
+              Vsaka stranka hrani svoja obdobja. Vsako obdobje ima svojo kartico. Za isto Od in Do ostane zadnja shranjena bilanca. Drugo obdobje dodate pri datumih na bilanci.
             </DialogDescription>
           </DialogHeader>
           {archiveError ? (
@@ -1750,7 +1938,7 @@ export function BilanceApp() {
           <DialogHeader>
             <DialogTitle className="text-2xl text-navy">Stranke</DialogTitle>
             <DialogDescription>
-              Vsaka stranka ima svojo bazo v tem brskalniku. Formule in shranjena obdobja ostanejo, tudi ko se program posodobi.
+              Vsaka stranka ima svojo bazo v tem brskalniku. Ena stranka ima lahko več obdobij. Vsako obdobje je svoja bilanca.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
