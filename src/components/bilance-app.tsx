@@ -87,10 +87,10 @@ function ShotTitle({ name, loaded }: { name: string; loaded: boolean }) {
   )
 }
 
-function ShotUnread() {
+function ShotProblem({ reason }: { reason: string }) {
   return (
     <p className="mt-2 text-sm text-destructive" role="alert">
-      Slike ni bilo mogoče prebrati.
+      {reason}
     </p>
   )
 }
@@ -151,7 +151,7 @@ export function BilanceApp() {
   const [supplierOver, setSupplierOver] = useState(false)
   const [loan045Over, setLoan045Over] = useState(false)
   const [loan076Over, setLoan076Over] = useState(false)
-  const [unreadShot, setUnreadShot] = useState<Partial<Record<ShotField, true>>>({})
+  const [shotError, setShotError] = useState<Partial<Record<ShotField, string>>>({})
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
   const [saveAsk, setSaveAsk] = useState(false)
   const [savingArchive, setSavingArchive] = useState(false)
@@ -236,7 +236,7 @@ export function BilanceApp() {
     const period = statement.period
     const seenKupci = agingEpoch.current.kupci
     const seenDobavitelji = agingEpoch.current.dobavitelji
-    setUnreadShot({})
+    setShotError({})
     setKupci(null)
     setDobavitelji(null)
     setLoans045(null)
@@ -1460,14 +1460,15 @@ export function BilanceApp() {
     const epoch = agingEpoch.current[kind]
     setAgingBusy(kind)
     setError(null)
-    setUnreadShot((current) => {
+    setShotError((current) => {
       if (!current[kind]) return current
       const next = { ...current }
       delete next[kind]
       return next
     })
     try {
-      const rows = await readAgingFile(file, kind)
+      const image = await screenshotFile(file, kind)
+      const rows = await readAgingFile(image, kind)
       await writePartnerAging(company, period, kind, rows)
       if (epoch !== agingEpoch.current[kind]) return
       if (statementRef.current.company !== company || statementRef.current.period !== period) return
@@ -1479,8 +1480,9 @@ export function BilanceApp() {
         statementRef.current.company === company &&
         statementRef.current.period === period
       ) {
-        setError(caught instanceof Error ? caught.message : "Tabele ni bilo mogoče prebrati.")
-        setUnreadShot((current) => ({ ...current, [kind]: true }))
+        const message = caught instanceof Error ? caught.message : "Tabele ni bilo mogoče prebrati."
+        setError(message)
+        setShotError((current) => ({ ...current, [kind]: message }))
       }
     } finally {
       if (epoch === agingEpoch.current[kind]) setAgingBusy((current) => (current === kind ? null : current))
@@ -1513,19 +1515,23 @@ export function BilanceApp() {
 
   function pastedImage(data: DataTransfer | null, fallbackName: string): File | null {
     if (!data) return null
-    const files = [...data.files]
+    const files: File[] = []
+    for (const file of data.files) if (file.size > 0) files.push(file)
     for (const item of data.items) {
       if (item.kind !== "file") continue
       const file = item.getAsFile()
-      if (!file) continue
-      if (!file.type && item.type.startsWith("image/")) {
-        const ext = item.type === "image/jpeg" ? "jpg" : item.type === "image/webp" ? "webp" : "png"
+      if (!file || file.size === 0) continue
+      if (item.type.startsWith("image/") && !file.type.toLowerCase().startsWith("image/")) {
+        const ext =
+          item.type === "image/jpeg" ? "jpg" : item.type === "image/webp" ? "webp" : item.type === "image/png" ? "png" : "img"
         files.push(new File([file], file.name || `${fallbackName}.${ext}`, { type: item.type }))
         continue
       }
       files.push(file)
     }
-    return files.find((file) => isAgingImage(file)) ?? null
+    const images = files.filter((file) => isAgingImage(file))
+    images.sort((left, right) => right.size - left.size)
+    return images[0] ?? null
   }
 
   function clipboardHasFile(data: DataTransfer | null): boolean {
@@ -1540,7 +1546,9 @@ export function BilanceApp() {
       if (clipboardHasFile(event.clipboardData)) {
         event.preventDefault()
         event.stopPropagation()
-        setError("Prilepite posnetek zaslona (png, jpg ali webp).")
+        const message = "Prilepite posnetek zaslona (png, jpg ali webp)."
+        setError(message)
+        setShotError((current) => ({ ...current, [kind]: message }))
       }
       return
     }
@@ -1555,7 +1563,11 @@ export function BilanceApp() {
       void loadAging(kind, file)
       return
     }
-    if (data.files.length) setError("Prilepite posnetek zaslona (png, jpg ali webp).")
+    if (data.files.length) {
+      const message = "Prilepite posnetek zaslona (png, jpg ali webp)."
+      setError(message)
+      setShotError((current) => ({ ...current, [kind]: message }))
+    }
   }
 
   function dropLoanImage(data: DataTransfer, kind: "045" | "076") {
@@ -1564,50 +1576,54 @@ export function BilanceApp() {
       void loadLoanShot(kind, file)
       return
     }
-    if (data.files.length) setError("Prilepite posnetek zaslona (png, jpg ali webp).")
+    if (data.files.length) {
+      const message = "Prilepite posnetek zaslona (png, jpg ali webp)."
+      setError(message)
+      setShotError((current) => ({ ...current, [kind]: message }))
+    }
   }
 
   function isAgingImage(file: File): boolean {
+    if (file.size === 0) return false
+    const type = file.type.toLowerCase()
     const name = file.name.toLowerCase()
-    return (
-      file.type === "image/png" ||
-      file.type === "image/jpeg" ||
-      file.type === "image/webp" ||
-      name.endsWith(".png") ||
-      name.endsWith(".jpg") ||
-      name.endsWith(".jpeg") ||
-      name.endsWith(".webp")
-    )
+    return type.startsWith("image/") || /\.(png|jpe?g|webp|bmp|gif|tiff?)$/.test(name)
+  }
+
+  /** Png, jpg in webp gredo naprej. Drugo sliko iz odložišča najprej zapiše kot png. */
+  async function screenshotFile(file: File, fallbackName: string): Promise<File> {
+    if (file.size === 0) throw new Error("Posnetek je prazen.")
+    const type = file.type.toLowerCase()
+    const name = file.name.toLowerCase()
+    if (type === "image/png" || type === "image/jpeg" || type === "image/webp") return file
+    if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp")) {
+      const nextType = name.endsWith(".webp") ? "image/webp" : name.endsWith(".png") ? "image/png" : "image/jpeg"
+      const ext = nextType === "image/webp" ? "webp" : nextType === "image/png" ? "png" : "jpg"
+      return new File([file], file.name || `${fallbackName}.${ext}`, { type: nextType })
+    }
+    if (typeof createImageBitmap !== "function") throw new Error("Posnetek naj bo png, jpg ali webp.")
+    try {
+      const bitmap = await createImageBitmap(file)
+      const canvas = document.createElement("canvas")
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext("2d")
+      if (!ctx || !bitmap.width || !bitmap.height) throw new Error("Posnetka ni bilo mogoče odpreti.")
+      ctx.drawImage(bitmap, 0, 0)
+      bitmap.close()
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), "image/png"))
+      if (!blob || blob.size === 0) throw new Error("Posnetka ni bilo mogoče odpreti.")
+      return new File([blob], `${fallbackName}.png`, { type: "image/png" })
+    } catch (caught) {
+      if (caught instanceof Error && /odpreti|png, jpg/.test(caught.message)) throw caught
+      throw new Error("Posnetka ni bilo mogoče odpreti.")
+    }
   }
 
   function agingNote(kind: AgingKind, rows: AgingParty[] | null): string | null {
     if (!rows?.length) return null
     const who = kind === "kupci" ? "Kupci" : "Dobavitelji"
     return `${who} so naloženi za to obdobje. Skupaj ${formatCents(rows.reduce((sum, row) => sum + row.stanje, 0))}.`
-  }
-
-  function isSheet045Image(file: File): boolean {
-    const name = file.name.toLowerCase()
-    return (
-      file.type === "image/png" ||
-      file.type === "image/jpeg" ||
-      file.type === "image/webp" ||
-      name.endsWith(".png") ||
-      name.endsWith(".jpg") ||
-      name.endsWith(".jpeg") ||
-      name.endsWith(".webp")
-    )
-  }
-
-  function sheet045File(file: File): File {
-    if (file.type === "image/png" || file.type === "image/jpeg" || file.type === "image/webp") return file
-    const name = file.name.toLowerCase()
-    const type = name.endsWith(".webp")
-      ? "image/webp"
-      : name.endsWith(".jpg") || name.endsWith(".jpeg")
-        ? "image/jpeg"
-        : "image/png"
-    return new File([file], file.name || "zavihek-045.png", { type })
   }
 
   async function loadLoanShot(kind: "045" | "076", file: File) {
@@ -1618,24 +1634,26 @@ export function BilanceApp() {
       setError("Najprej odprite bilanco.")
       return
     }
-    if (!isSheet045Image(file)) {
-      setError("Posnetek naj bo png, jpg ali webp.")
+    if (!isAgingImage(file)) {
+      const message = "Posnetek naj bo png, jpg ali webp."
+      setError(message)
+      setShotError((current) => ({ ...current, [kind]: message }))
       return
     }
-    const image = sheet045File(file)
     const epochRef = kind === "076" ? sheet076Epoch : sheet045Epoch
     epochRef.current += 1
     const epoch = epochRef.current
     if (kind === "076") setSheet076Busy(true)
     else setSheet045Busy(true)
     setError(null)
-    setUnreadShot((current) => {
+    setShotError((current) => {
       if (!current[kind]) return current
       const next = { ...current }
       delete next[kind]
       return next
     })
     try {
+      const image = await screenshotFile(file, kind === "076" ? "obveznosti" : "posojila")
       const body = new FormData()
       body.set("file", image)
       const response = await postScreenshot("/api/zavihek-045", body)
@@ -1660,8 +1678,9 @@ export function BilanceApp() {
         statementRef.current.company === company &&
         statementRef.current.period === period
       ) {
-        setError(caught instanceof Error ? caught.message : "Tabele na posnetku ni bilo mogoče prebrati.")
-        setUnreadShot((current) => ({ ...current, [kind]: true }))
+        const message = caught instanceof Error ? caught.message : "Tabele na posnetku ni bilo mogoče prebrati."
+        setError(message)
+        setShotError((current) => ({ ...current, [kind]: message }))
       }
     } finally {
       if (epoch === epochRef.current) {
@@ -1684,7 +1703,9 @@ export function BilanceApp() {
       if (clipboardHasFile(event.clipboardData)) {
         event.preventDefault()
         event.stopPropagation()
-        setError("Prilepite posnetek zaslona (png, jpg ali webp).")
+        const message = "Prilepite posnetek zaslona (png, jpg ali webp)."
+        setError(message)
+        setShotError((current) => ({ ...current, [kind]: message }))
       }
       return
     }
@@ -2358,7 +2379,7 @@ export function BilanceApp() {
                           <FileUp />
                           {agingBusy === "kupci" ? "Berem kupce…" : "Naloži kupce"}
                         </Button>
-                        {unreadShot.kupci && !kupci?.length ? <ShotUnread /> : null}
+                        {shotError.kupci && !kupci?.length ? <ShotProblem reason={shotError.kupci} /> : null}
                       </div>
                       <div
                         data-dobavitelji-paste=""
@@ -2386,8 +2407,8 @@ export function BilanceApp() {
                       >
                         <ShotTitle name="Dobavitelji" loaded={Boolean(dobavitelji?.length)} />
                         <p>
-                          Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice na
-                          zavihek 093.
+                          Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
+                          dobavitelje.
                         </p>
                         <Button
                           type="button"
@@ -2400,7 +2421,7 @@ export function BilanceApp() {
                           <FileUp />
                           {agingBusy === "dobavitelji" ? "Berem dobavitelje…" : "Naloži dobavitelje"}
                         </Button>
-                        {unreadShot.dobavitelji && !dobavitelji?.length ? <ShotUnread /> : null}
+                        {shotError.dobavitelji && !dobavitelji?.length ? <ShotProblem reason={shotError.dobavitelji} /> : null}
                       </div>
                       <div
                         data-posojila-paste=""
@@ -2442,7 +2463,7 @@ export function BilanceApp() {
                           <FileUp />
                           {sheet045Busy ? "Berem kratkoročna dana posojila…" : "Naloži kratkoročna dana posojila"}
                         </Button>
-                        {unreadShot["045"] && !loans045?.length ? <ShotUnread /> : null}
+                        {shotError["045"] && !loans045?.length ? <ShotProblem reason={shotError["045"]} /> : null}
                       </div>
                       <div
                         data-obveznosti-paste=""
@@ -2486,7 +2507,7 @@ export function BilanceApp() {
                           <FileUp />
                           {sheet076Busy ? "Berem dolgoročne finančne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
                         </Button>
-                        {unreadShot["076"] && !loans076?.length ? <ShotUnread /> : null}
+                        {shotError["076"] && !loans076?.length ? <ShotProblem reason={shotError["076"]} /> : null}
                       </div>
                       <p>
                         Razkritja se napolnijo iz odprte bilance {statement.period}. V vsako polje prilepite posnetek

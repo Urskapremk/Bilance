@@ -261,6 +261,60 @@ export async function finishOcr(): Promise<void> {
   }
 }
 
+/** Png, jpg in webp po vsebini, tudi če odložišče ne napiše vrste datoteke. */
+export function isScreenshotFile(bytes: Uint8Array, type: string, name: string): boolean {
+  if (isPng(bytes) || isJpeg(bytes) || isWebp(bytes)) return true
+  const cleanType = type.toLowerCase()
+  const cleanName = name.toLowerCase()
+  return (
+    cleanType === "image/png" ||
+    cleanType === "image/jpeg" ||
+    cleanType === "image/webp" ||
+    /\.(png|jpe?g|webp)$/.test(cleanName)
+  )
+}
+
+/** Kratek slovenski razlog. Manjkajoča knjižnica ne ostane skrita za splošnim stavkom. */
+export function screenshotReadError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message.replace(/\s+/g, " ").trim() : ""
+  if (!message) return fallback
+  if (/cannot find module|module_not_found|bmp-js/i.test(message)) {
+    return "Na strežniku manjka bralnik besedila."
+  }
+  if (/error attempting to read image/i.test(message)) return "Posnetka ni bilo mogoče odpreti."
+  if (/unsupported image format|input buffer contains/i.test(message)) return "Te oblike slike ne znam prebrati."
+  if (
+    message.length <= 180 &&
+    !/node_modules|\/workspace\/|at \//.test(message) &&
+    /[čšžČŠŽ]|slik|posnet|bral|tabel|strežnik|končal|poskus|manjka/i.test(message)
+  ) {
+    return message
+  }
+  return fallback
+}
+
+function isPng(bytes: Uint8Array): boolean {
+  return bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+}
+
+function isJpeg(bytes: Uint8Array): boolean {
+  return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+}
+
+function isWebp(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  )
+}
+
 /** Celoten klic se prekine, tudi če se posamezno branje ne vrne. */
 export function withOcrDeadline<T>(work: Promise<T>, ms = OCR_DEADLINE_MS): Promise<T> {
   return new Promise((resolve, reject) => {

@@ -7,6 +7,7 @@ import sharp from "sharp"
 
 import { findBankCell } from "./bank-form.ts"
 import { agingSheetCells, agingTotalCents, parseAgingGrid } from "./partner-aging.ts"
+import { POST as postStarost } from "../app/api/starost/route.ts"
 import { finishAgingOcr, ocrWordsToGrid, parseAgingImage, type OcrWord } from "./partner-aging-image.ts"
 
 const HEADERS = [
@@ -244,6 +245,26 @@ test("posnetek dobaviteljev napolni zavihek 093 in skupaj je 61.594,50", { timeo
       assert.equal(cells.some((cell) => cell.sheet.startsWith("045")), false)
       assert.equal(cells.some((cell) => cell.sheet === KUPCI), false)
     }
+  } finally {
+    await finishAgingOcr()
+  }
+})
+
+test("prilepljen png dobaviteljev brez vrste datoteke vrne Medikospot in 61.594,50", { timeout: 60_000 }, async () => {
+  const png = await readFile(path.join(process.cwd(), "src/lib/fixtures/dobavitelji-starost.png"))
+  const form = new FormData()
+  form.set("file", new File([png], "blob", { type: "" }))
+  form.set("kind", "dobavitelji")
+  try {
+    const response = await postStarost(new Request("http://bilance.local/api/starost", { method: "POST", body: form }))
+    assert.equal(response.status, 200)
+    const data = (await response.json()) as { rows: Array<{ name: string; stanje: number }> }
+    assert.equal(data.rows.length, 11)
+    assert.equal(data.rows[0]?.name, "Medikospot d.o.o.")
+    assert.equal(
+      data.rows.reduce((sum, row) => sum + row.stanje, 0),
+      6_159_450,
+    )
   } finally {
     await finishAgingOcr()
   }
