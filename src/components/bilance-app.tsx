@@ -2320,8 +2320,8 @@ export function BilanceApp() {
                       >
                         <p className="font-medium text-navy">Dobavitelji</p>
                         <p>
-                          Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
-                          dobavitelje.
+                          Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice na
+                          zavihek 093.
                         </p>
                         <Button
                           type="button"

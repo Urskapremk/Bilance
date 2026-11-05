@@ -56,9 +56,10 @@ export async function parseAgingImage(data: Uint8Array, expected: AgingKind): Pr
   const cells = await cellsToGrid(data).catch(() => [] as string[][])
   if (cells.length) {
     try {
-      return parseAgingGrid(cells, expected)
+      return parseAgingGrid(cells, expected).map(reconcileAgingRow)
     } catch (error) {
       if (!(error instanceof AgingTableError)) throw error
+      if (/V tej tabeli so/.test(error.message)) throw error
     }
   }
   const lines = await recognizeLines(data)
@@ -68,7 +69,7 @@ export async function parseAgingImage(data: Uint8Array, expected: AgingKind): Pr
       "Na sliki ne vidim tabele. Naložite posnetek zaslona s stolpci Kupec ali Dobavitelj, davčna in Stanje.",
     )
   }
-  return parseAgingGrid(grid, expected)
+  return parseAgingGrid(grid, expected).map(reconcileAgingRow)
 }
 
 function isAgingHeader(cells: HeaderCell[]): boolean {
@@ -264,7 +265,7 @@ async function readBand(
     const x0 = edges[index] ?? 0
     const x1 = edges[index + 1] ?? x0
     const kind = kinds?.[index] ?? null
-    const image = await cellImage(data, x0, band.y0, x1, band.y1, scale)
+    const image = await cellImage(data, x0, band.y0, x1, band.y1, cellScale(kind, band, scale), cellThreshold(kind))
     if (!image) {
       cells.push("")
       continue
@@ -314,6 +315,18 @@ async function restoreCaron(name: string, data: Uint8Array, x0: number, y0: numb
   return name.replace(/^S[Zz]/, "SŽ")
 }
 
+/** Števke pri višini okoli 70 px zaprejo luknjo v petki. Zato jih beremo bližje 56 px. */
+function cellScale(kind: string | null, band: { y0: number; y1: number }, scale: number): number {
+  if (!kind || (!MONEY.has(kind) && kind !== "davcna" && kind !== "zap")) return scale
+  const height = Math.max(1, band.y1 - band.y0)
+  return Math.min(8, Math.max(3, Math.round(56 / height)))
+}
+
+/** Pri davčni številki nekoliko višji prag obdrži svetlejšo potezo petke. */
+function cellThreshold(kind: string | null): number {
+  return kind === "davcna" || kind === "zap" ? 180 : 160
+}
+
 async function cellImage(
   data: Uint8Array,
   x0: number,
@@ -321,6 +334,7 @@ async function cellImage(
   x1: number,
   y1: number,
   scale: number,
+  threshold: number,
 ): Promise<Buffer | null> {
   const width = Math.max(1, x1 - x0)
   const height = Math.max(1, y1 - y0)
@@ -331,8 +345,8 @@ async function cellImage(
   return sharp(Buffer.from(data))
     .extract({ left: x0, top: y0, width, height })
     .greyscale()
-    .resize(width * scale, height * scale, { kernel: "lanczos3" })
-    .threshold(160)
+    .resize(width * scale, height * scale)
+    .threshold(threshold)
     .extend({ top: 18, bottom: 18, left: 18, right: 18, background: "#ffffff" })
     .png()
     .toBuffer()
@@ -343,22 +357,87 @@ async function readCell(image: Buffer, kind: string | null): Promise<string> {
     const digits = await recognizeCell(image, "0123456789.,")
     return canonicalAmount(digits)
   }
-  if (kind === "davcna" || kind === "zap") {
-    const digits = await recognizeCell(image, "0123456789")
-    if (kind === "zap") return digits.replace(/\D/g, "")
-    const numeric = digits.replace(/\D/g, "")
-    if (/^1\d{8}$/.test(numeric)) return numeric.slice(1)
-    if (numeric.length >= 7) return numeric
-    const letters = await recognizeCell(image, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-    const compact = letters.replace(/\s+/g, "")
-    return /^1\d{8}$/.test(compact) ? compact.slice(1) : compact
+  if (kind === "davcna" || kind === "zap") return readTax(image, kind)
+  if (kind === "kupec" || kind === "dobavitelj") return readName(image)
+  return cleanName(await recognizeCell(image, ""))
+}
+
+async function readTax(image: Buffer, kind: "davcna" | "zap"): Promise<string> {
+  const digits = await recognizeCell(image, "0123456789")
+  if (kind === "zap") return digits.replace(/\D/g, "")
+  const numeric = digits.replace(/\D/g, "")
+  const compact = (await recognizeCell(image, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"))
+    .replace(/\s+/g, "")
+    .toUpperCase()
+  const prefixed = compact.match(/^([A-Z]{2})(\d{6,})$/)
+  if (prefixed?.[1] && prefixed[2] && (numeric === prefixed[2] || numeric.endsWith(prefixed[2]))) {
+    return `${prefixed[1]}${prefixed[2]}`
   }
-  const text = await recognizeCell(image, "")
+  if (/^1\d{8}$/.test(numeric)) return numeric.slice(1)
+  if (numeric.length >= 7) return numeric
+  const plain = cleanName(await recognizeCell(image, "")).replace(/\s+/g, "").toUpperCase()
+  if (/^[A-Z]{2}$/.test(plain)) return plain
+  if (/^[A-Z]{2}\d{6,}$/.test(plain)) return plain
+  if (/^I[A-Z]{2}$/.test(compact)) return compact.slice(1)
+  return /^1\d{8}$/.test(compact) ? compact.slice(1) : compact
+}
+
+async function readName(image: Buffer): Promise<string> {
+  const plain = cleanName(await recognizeCell(image, ""))
+  const alnum = (await recognizeCell(image, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")).replace(/\s+/g, "")
+  return mergeName(plain, alnum)
+}
+
+function cleanName(text: string): string {
   return text
     .replace(/^[^0-9A-Za-zÀ-ž]+/u, "")
     .replace(/[|;,[\]()]+$/g, "")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function mergeName(plain: string, alnum: string): string {
+  const spaced = plain.replace(/([0-9])(?=LTD\b)/g, "$1 ")
+  const tokens = spaced.split(" ")
+  const first = tokens[0] ?? ""
+  const alt = alnum.slice(0, first.length)
+  if (first && alt.length === first.length && !/\d/.test(first) && /\d/.test(alt) && sameAsideFromDigit(first, alt)) {
+    tokens[0] = alt
+  }
+  return tokens.join(" ")
+}
+
+function sameAsideFromDigit(plain: string, alt: string): boolean {
+  for (let index = 0; index < plain.length; index += 1) {
+    const left = plain[index] ?? ""
+    const right = alt[index] ?? ""
+    if (left.toLowerCase() === right.toLowerCase()) continue
+    if ((left === "A" || left === "a") && right === "4") continue
+    return false
+  }
+  return true
+}
+
+/** Zapadlo je vsota razredov. Če bralnik odreže prvo števko, jo vrnemo, kadar se ujema z zapadlim. */
+function reconcileAgingRow(row: AgingParty): AgingParty {
+  const buckets = ["do30", "d60", "d90", "d150", "nad150"] as const
+  let next = row
+  const parts = next.nezapadlo + next.zapadlo
+  if (parts && next.stanje === parts * 100 && next.stanje % 100 === 0 && parts % 100 !== 0) {
+    next = { ...next, stanje: parts }
+  }
+  const sum = buckets.reduce((total, key) => total + next[key], 0)
+  if (!next.zapadlo || sum === next.zapadlo) return next
+  const fixes = buckets.filter((key) => {
+    const value = next[key]
+    if (!value) return false
+    const corrected = next.zapadlo - (sum - value)
+    return corrected > value && corrected < value * 100 && String(corrected).endsWith(String(value))
+  })
+  if (fixes.length !== 1) return next
+  const key = fixes[0]
+  if (!key) return next
+  return { ...next, [key]: next.zapadlo - (sum - next[key]) }
 }
 
 function canonicalAmount(raw: string): string {
@@ -376,8 +455,11 @@ function amountCents(raw: string): number | null {
   const negative = cleaned.startsWith("-")
   const body = cleaned.replace(/-/g, "")
   const last = Math.max(body.lastIndexOf(","), body.lastIndexOf("."))
+  const swallowed = body.match(/^(\d{1,3}(?:\.\d{3})+)(\d{2})$/)
   let cents: number
-  if (last >= 0 && body.length - last - 1 === 2) {
+  if (swallowed?.[1] && swallowed[2]) {
+    cents = Number(swallowed[1].replace(/\./g, "")) * 100 + Number(swallowed[2])
+  } else if (last >= 0 && body.length - last - 1 === 2) {
     const whole = body.slice(0, last).replace(/\D/g, "") || "0"
     const frac = body.slice(last + 1).replace(/\D/g, "")
     cents = Number(whole) * 100 + Number(frac)

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
-import test from "node:test"
+import test, { describe } from "node:test"
 
 import sharp from "sharp"
 
@@ -114,7 +114,9 @@ test("posnetek z 11 dobavitelji napolni vrstice brez izmišljenih razredov", () 
 })
 
 const KUPCI = "050 Krat.ter.kupci"
+const DOBAVITELJI = "093 Krat.obvez.dobav."
 
+describe("posnetki zaslona", { concurrency: 1 }, () => {
 test("posnetek kupcev prebere vseh 11 vrstic in skupaj 125.156,66", { timeout: 120_000 }, async () => {
   const png = await readFile(path.join(process.cwd(), "src/lib/fixtures/kupci-terjatve.png"))
   const images = [
@@ -163,6 +165,89 @@ test("posnetek kupcev prebere vseh 11 vrstic in skupaj 125.156,66", { timeout: 1
   } finally {
     await finishAgingOcr()
   }
+})
+
+test("posnetek dobaviteljev napolni zavihek 093 in skupaj je 61.594,50", { timeout: 120_000 }, async () => {
+  const png = await readFile(path.join(process.cwd(), "src/lib/fixtures/dobavitelji-starost.png"))
+  const images = [
+    png,
+    await sharp(png).jpeg({ quality: 90 }).toBuffer(),
+    await sharp(png).webp({ quality: 90 }).toBuffer(),
+  ]
+  try {
+    for (const image of images) {
+      await assert.rejects(parseAgingImage(image, "kupci"), /dobavitelji/)
+      const parties = await parseAgingImage(image, "dobavitelji")
+      assert.equal(parties.length, 11)
+      assert.equal(parties.some((row) => row.name.toLowerCase() === "skupaj"), false)
+      assert.equal(parties[0]?.name, "Medikospot d.o.o.")
+      assert.equal(parties[0]?.taxNumber, "44322895")
+      assert.equal(parties[0]?.stanje, 1_976_400)
+      assert.equal(parties[0]?.nezapadlo, 0)
+      assert.equal(parties[0]?.do30, 1_976_400)
+      assert.equal(parties[0]?.d60, 0)
+      assert.equal(parties[1]?.name, "Top Relax srl")
+      assert.equal(parties[1]?.taxNumber, "IT03865270262")
+      assert.equal(parties[1]?.stanje, 956_403)
+      assert.equal(parties[1]?.nad150, 956_403)
+      assert.equal(parties[1]?.do30, 0)
+      assert.equal(parties[2]?.name, "MF4L D.O.O.")
+      assert.equal(parties[2]?.taxNumber, "63557932")
+      assert.equal(parties[2]?.nezapadlo, 890_000)
+      assert.equal(parties[2]?.zapadlo, 0)
+      assert.equal(parties[3]?.name, "Uroš Dimnik s.p.")
+      assert.equal(parties[4]?.name, "Klemen Janežič s.p.")
+      assert.equal(parties[4]?.taxNumber, "45155682")
+      assert.equal(parties[5]?.name, "Studio C6 LTD")
+      assert.equal(parties[5]?.taxNumber, "GB")
+      assert.equal(parties[5]?.nezapadlo, 455_000)
+      assert.equal(parties[6]?.taxNumber, "69427968")
+      assert.equal(parties[7]?.name, "Zavarovalnica Sava d.d.")
+      assert.equal(parties[7]?.stanje, 140_416)
+      assert.equal(parties[8]?.name, "Bitnet d.o.o.")
+      assert.equal(parties[8]?.taxNumber, "55681140")
+      assert.equal(parties[8]?.stanje, 132_004)
+      assert.equal(parties[8]?.nezapadlo, 132_004)
+      assert.equal(parties[9]?.name, "Hnatura d.o.o.")
+      assert.equal(parties[9]?.taxNumber, "31141544")
+      assert.equal(parties[9]?.stanje, 60_305)
+      assert.equal(parties[10]?.name, "ostali")
+      assert.equal(parties[10]?.taxNumber, "")
+      assert.equal(parties[10]?.stanje, 173_722)
+      assert.equal(parties[10]?.nezapadlo, 93_656)
+      assert.equal(parties[10]?.zapadlo, 80_066)
+      assert.equal(parties[10]?.do30, 13_600)
+      assert.equal(parties[10]?.d60, 0)
+      assert.equal(parties[10]?.d90, 0)
+      assert.equal(parties[10]?.d150, 12_636)
+      assert.equal(parties[10]?.nad150, 53_830)
+      for (const row of parties) {
+        assert.equal(row.do30 + row.d60 + row.d90 + row.d150 + row.nad150, row.zapadlo)
+        assert.equal(row.nezapadlo + row.zapadlo, row.stanje)
+      }
+      assert.equal(agingTotalCents(parties), 6_159_450)
+      const cells = agingSheetCells(DOBAVITELJI, "dobavitelji", parties)
+      assert.equal(findBankCell(cells, DOBAVITELJI, "B8")?.text, "Medikospot d.o.o.")
+      assert.equal(findBankCell(cells, DOBAVITELJI, "C9")?.text, "IT03865270262")
+      assert.equal(findBankCell(cells, DOBAVITELJI, "K9")?.euros, 956_403)
+      assert.equal(findBankCell(cells, DOBAVITELJI, "C13")?.text, "GB")
+      assert.equal(findBankCell(cells, DOBAVITELJI, "C16")?.text, "55681140")
+      assert.equal(findBankCell(cells, DOBAVITELJI, "B18"), undefined)
+      assert.equal(findBankCell(cells, DOBAVITELJI, "D18")?.euros, 173_722)
+      assert.equal(findBankCell(cells, DOBAVITELJI, "K18")?.euros, 53_830)
+      assert.equal(findBankCell(cells, DOBAVITELJI, "H18"), undefined)
+      assert.equal(findBankCell(cells, DOBAVITELJI, "F8"), undefined)
+      const written = cells
+        .filter((cell) => cell.sheet === DOBAVITELJI && cell.euros !== undefined && /^D\d+$/.test(cell.cell))
+        .reduce((sum, cell) => sum + (cell.euros ?? 0), 0)
+      assert.equal(written, 6_159_450)
+      assert.equal(cells.some((cell) => cell.sheet.startsWith("045")), false)
+      assert.equal(cells.some((cell) => cell.sheet === KUPCI), false)
+    }
+  } finally {
+    await finishAgingOcr()
+  }
+})
 })
 
 test("slika dobaviteljev ne gre med kupce", () => {
