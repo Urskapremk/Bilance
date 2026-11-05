@@ -35,7 +35,7 @@ import { defaultShowPriorYear, hasPriorYear } from "@/lib/prior-year"
 import { attachPublicFiling } from "@/lib/ajpes-public"
 import { dhApplicationName, dhWorkbookName, hasDhBankPack } from "@/lib/bank-form"
 import { DISCLOSURE_BANKS, disclosureWorkbookName, type DisclosureBankId } from "@/lib/razkritja"
-import { checkMark, listStoredPeriods, readChecks, readDraft, readLastPlace, readStoredFormulas, readStoredLegalForm, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace } from "@/lib/browser-book"
+import { checkMark, listStoredPeriods, readChecks, readDraft, readLastPlace, readPartnerAging, readStoredFormulas, readStoredLegalForm, rememberStoredClient, saveDraft, saveStoredFormulas, listStoredClients, writeChecks, writeLastPlace, writePartnerAging } from "@/lib/browser-book"
 import { listClients, rememberClientName } from "@/lib/clients-api"
 import {
   clientKey,
@@ -52,7 +52,8 @@ import { inferLegalForm, legalFormOf, type LegalForm } from "@/lib/legal-form"
 import type { DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
 import { rollup, sheetWarnings } from "@/lib/compute"
-import { splitPeriod } from "@/lib/format"
+import { formatCents, splitPeriod } from "@/lib/format"
+import { parseAgingWorkbook, type AgingKind, type AgingParty } from "@/lib/partner-aging"
 import { accountsForSearch, applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
@@ -109,6 +110,9 @@ export function BilanceApp() {
   const [recalcBusy, setRecalcBusy] = useState(false)
   const [exporting, setExporting] = useState<"one" | "both" | "banka" | "vloga" | "razkritja" | null>(null)
   const [disclosureBank, setDisclosureBank] = useState<DisclosureBankId>("dh")
+  const [kupci, setKupci] = useState<AgingParty[] | null>(null)
+  const [dobavitelji, setDobavitelji] = useState<AgingParty[] | null>(null)
+  const [agingBusy, setAgingBusy] = useState<AgingKind | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
@@ -143,6 +147,9 @@ export function BilanceApp() {
   const [checks, setChecks] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const ajpesInputRef = useRef<HTMLInputElement>(null)
+  const kupciInputRef = useRef<HTMLInputElement>(null)
+  const dobaviteljiInputRef = useRef<HTMLInputElement>(null)
+  const agingEpoch = useRef(0)
   const cardInputRef = useRef<HTMLInputElement>(null)
   const taxInputRef = useRef<HTMLInputElement>(null)
   const newFileRef = useRef<HTMLInputElement>(null)
@@ -182,6 +189,21 @@ export function BilanceApp() {
     kontiRef.current = konti
     statementRef.current = statement
   }, [phase, pdfName, activeClient, konti, statement])
+
+  useEffect(() => {
+    const company = statement.company
+    const period = statement.period
+    const epoch = agingEpoch.current
+    if (!company || !period.trim()) return
+    void readPartnerAging(company, period)
+      .then((stored) => {
+        if (epoch !== agingEpoch.current) return
+        if (statementRef.current.company !== company || statementRef.current.period !== period) return
+        setKupci(stored.kupci.length ? stored.kupci : null)
+        setDobavitelji(stored.dobavitelji.length ? stored.dobavitelji : null)
+      })
+      .catch(() => undefined)
+  }, [statement.company, statement.period])
 
   function showView(next: View) {
     setView(next)
@@ -1368,6 +1390,40 @@ export function BilanceApp() {
     }
   }
 
+  async function loadAging(kind: AgingKind, file: File) {
+    const current = statementRef.current
+    const company = current.company
+    const period = current.period
+    if (!company || !period.trim()) {
+      setError("Najprej odprite bilanco.")
+      return
+    }
+    agingEpoch.current += 1
+    const epoch = agingEpoch.current
+    setAgingBusy(kind)
+    setError(null)
+    try {
+      const rows = await parseAgingWorkbook(await file.arrayBuffer(), kind)
+      await writePartnerAging(company, period, kind, rows)
+      if (epoch !== agingEpoch.current) return
+      if (statementRef.current.company !== company || statementRef.current.period !== period) return
+      if (kind === "kupci") setKupci(rows)
+      else setDobavitelji(rows)
+    } catch (caught) {
+      if (epoch === agingEpoch.current) {
+        setError(caught instanceof Error ? caught.message : "Tabele ni bilo mogoče prebrati.")
+      }
+    } finally {
+      if (epoch === agingEpoch.current) setAgingBusy(null)
+    }
+  }
+
+  function agingNote(kind: AgingKind, rows: AgingParty[] | null): string | null {
+    if (!rows?.length) return null
+    const who = kind === "kupci" ? "Kupci" : "Dobavitelji"
+    return `${who} so naloženi za to obdobje. Skupaj ${formatCents(rows.reduce((sum, row) => sum + row.stanje, 0))}.`
+  }
+
   async function downloadDisclosures() {
     if (blank) {
       setError("Najprej odprite bilanco.")
@@ -1384,7 +1440,12 @@ export function BilanceApp() {
       const response = await fetch("/api/razkritja", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bank: disclosureBank, statement: current }),
+        body: JSON.stringify({
+          bank: disclosureBank,
+          statement: current,
+          ...(kupci?.length ? { kupci } : {}),
+          ...(dobavitelji?.length ? { dobavitelji } : {}),
+        }),
       })
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null
@@ -1916,6 +1977,46 @@ export function BilanceApp() {
                     <FileSpreadsheet />
                     {exporting === "razkritja" ? "Pripravljam razkritja…" : "Razkritja"}
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => kupciInputRef.current?.click()}
+                    disabled={exporting !== null || busy || ajpesBusy || blank || agingBusy !== null}
+                  >
+                    <FileUp />
+                    {agingBusy === "kupci" ? "Berem kupce…" : "Naloži kupce"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => dobaviteljiInputRef.current?.click()}
+                    disabled={exporting !== null || busy || ajpesBusy || blank || agingBusy !== null}
+                  >
+                    <FileUp />
+                    {agingBusy === "dobavitelji" ? "Berem dobavitelje…" : "Naloži dobavitelje"}
+                  </Button>
+                  <input
+                    ref={kupciInputRef}
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) void loadAging("kupci", file)
+                      event.target.value = ""
+                    }}
+                  />
+                  <input
+                    ref={dobaviteljiInputRef}
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) void loadAging("dobavitelji", file)
+                      event.target.value = ""
+                    }}
+                  />
                   {blank ? (
                     <p className="text-sm text-muted-foreground">
                       {freshPeriod
@@ -1923,9 +2024,16 @@ export function BilanceApp() {
                         : "Najprej odprite bilanco."}
                     </p>
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Razkritja se napolnijo iz odprte bilance {statement.period}. Datoteka dobi ime stranke in tega obdobja.
-                    </p>
+                    <div className="basis-full text-sm text-muted-foreground">
+                      <p>
+                        Razkritja se napolnijo iz odprte bilance {statement.period}. Naloženi kupci in dobavitelji se
+                        vpišejo v razkritja te stranke za to obdobje.
+                      </p>
+                      {agingNote("kupci", kupci) ? <p className="mt-1 text-navy">{agingNote("kupci", kupci)}</p> : null}
+                      {agingNote("dobavitelji", dobavitelji) ? (
+                        <p className="mt-1 text-navy">{agingNote("dobavitelji", dobavitelji)}</p>
+                      ) : null}
+                    </div>
                   )}
                 </div>
               </div>

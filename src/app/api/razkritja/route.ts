@@ -4,6 +4,7 @@ import path from "node:path"
 import type { AjpesHeader } from "@/lib/ajpes-header"
 import { disclosureCells, type BankStatement } from "@/lib/bank-form"
 import { fillDhWorkbook } from "@/lib/bank-xlsx"
+import { sanitizeAgingParties } from "@/lib/partner-aging"
 import { disclosureWorkbookName, isDisclosureBank } from "@/lib/razkritja"
 
 export const runtime = "nodejs"
@@ -18,7 +19,12 @@ type Incoming = BankStatement & {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => null)) as { bank?: string; statement?: Incoming } | null
+  const body = (await request.json().catch(() => null)) as {
+    bank?: string
+    statement?: Incoming
+    kupci?: unknown
+    dobavitelji?: unknown
+  } | null
   const statement = body?.statement
   if (!isDisclosureBank(body?.bank)) {
     return Response.json({ error: "Ta banka še nima razkritij." }, { status: 400 })
@@ -29,12 +35,20 @@ export async function POST(request: Request) {
 
   try {
     const template = await readFile(TEMPLATE)
+    const kupci = sanitizeAgingParties(body?.kupci)
+    const dobavitelji = sanitizeAgingParties(body?.dobavitelji)
     const workbook = await fillDhWorkbook(
       template,
-      disclosureCells({
-        ...statement,
-        registration: statement.registration || statement.publicPrevious?.registration || "",
-      }),
+      disclosureCells(
+        {
+          ...statement,
+          registration: statement.registration || statement.publicPrevious?.registration || "",
+        },
+        {
+          ...(kupci?.length ? { kupci } : {}),
+          ...(dobavitelji?.length ? { dobavitelji } : {}),
+        },
+      ),
       { dropStaleText: true },
     )
     const filename = disclosureWorkbookName(statement.company, statement.period ?? "", statement.currentDate ?? "")

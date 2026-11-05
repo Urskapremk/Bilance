@@ -1,5 +1,6 @@
 import type { AjpesHeader } from "@/lib/ajpes-header"
 import { clientKey } from "@/lib/clients"
+import { agingSheetCells, type DisclosurePartners } from "@/lib/partner-aging"
 import { parseSloveneDate, splitPeriod } from "@/lib/format"
 import { rollupIncome } from "@/lib/income"
 import { inferLegalForm, legalFormOf, parseLegalForm, type LegalForm } from "@/lib/legal-form"
@@ -316,6 +317,7 @@ export function disclosureCells(
     previousIncome?: Record<string, number>
     ajpesHeader?: AjpesHeader
   },
+  partners?: DisclosurePartners,
 ): BankCell[] {
   const period = splitPeriod(statement.period || "")
   const start = period ? civilDate(period.start) : null
@@ -355,6 +357,7 @@ export function disclosureCells(
       legalForm: form,
     },
     form,
+    partners,
   )
   const filled = new Set(writes.filter((item) => item.sheet === SHEET.osnovni).map((item) => item.cell))
   const clears: BankCell[] = SAMPLE_COMPANY_CELLS.filter((cell) => !filled.has(cell)).map((cell) => ({
@@ -425,7 +428,12 @@ function writeStatement(
   }
 }
 
-function writeDisclosures(cells: BankCell[], input: BankFormInput, form: LegalForm) {
+function writeDisclosures(
+  cells: BankCell[],
+  input: BankFormInput,
+  form: LegalForm,
+  partners?: DisclosurePartners,
+) {
   const current = input.currentBalance
   const previous = input.previousBalance
   move(cells, SHEET.neopred, 8, previous["006"], current["006"])
@@ -469,10 +477,12 @@ function writeDisclosures(cells: BankCell[], input: BankFormInput, form: LegalFo
 
   balanceOnly(cells, SHEET.terjatveDolg, sum(current, ["028", "029", "030"]))
   balanceOnly(cells, SHEET.terjatveSkupina, current["049"])
-  balanceOnly(cells, SHEET.kupci, current["050"])
+  if (partners?.kupci?.length) cells.push(...agingSheetCells(SHEET.kupci, "kupci", partners.kupci))
+  else balanceOnly(cells, SHEET.kupci, current["050"])
   balanceOnly(cells, SHEET.obveznostiPosl, sum(current, ["081", "082", "083"]))
   balanceOnly(cells, SHEET.obveznostiSkupina, current["092"])
-  balanceOnly(cells, SHEET.dobavitelji, current["093"])
+  if (partners?.dobavitelji?.length) cells.push(...agingSheetCells(SHEET.dobavitelji, "dobavitelji", partners.dobavitelji))
+  else balanceOnly(cells, SHEET.dobavitelji, current["093"])
 
   move(cells, SHEET.terjatveDrugi, 8, previous["051"], current["051"])
   move(cells, SHEET.acr, 8, previous["053"], current["053"])

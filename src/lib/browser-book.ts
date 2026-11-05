@@ -3,6 +3,7 @@ import { mergeFormulas } from "@/lib/account-map"
 import { archiveSaveTarget, keepNewestByPeriod, samePeriod } from "@/lib/archive-period"
 import { clientKey, normalizeClientName, sameClient, SAMPLE_CLIENT } from "@/lib/clients"
 import { parseLegalForm, type LegalForm } from "@/lib/legal-form"
+import type { AgingKind, AgingParty } from "@/lib/partner-aging"
 import type { Statement } from "@/lib/trial"
 
 export const REGISTRY_DATABASE = "bilance-stranke"
@@ -328,13 +329,49 @@ function openRegistry(): Promise<IDBDatabase> {
   })
 }
 
+export type StoredPartnerAging = {
+  kupci: AgingParty[]
+  dobavitelji: AgingParty[]
+}
+
+const EMPTY_AGING: StoredPartnerAging = { kupci: [], dobavitelji: [] }
+
+/** Kupci in dobavitelji ostanejo pri tej stranki in tem obdobju. */
+export async function readPartnerAging(company: string, period: string): Promise<StoredPartnerAging> {
+  const key = period.trim()
+  if (!company || !key) return EMPTY_AGING
+  const db = await openClient(company)
+  const stored = await get<StoredPartnerAging>(db, "starost", key)
+  db.close()
+  if (!stored) return EMPTY_AGING
+  return {
+    kupci: Array.isArray(stored.kupci) ? stored.kupci : [],
+    dobavitelji: Array.isArray(stored.dobavitelji) ? stored.dobavitelji : [],
+  }
+}
+
+export async function writePartnerAging(
+  company: string,
+  period: string,
+  kind: AgingKind,
+  rows: AgingParty[],
+): Promise<void> {
+  const key = period.trim()
+  if (!company || !key) return
+  const db = await openClient(company)
+  const current = (await get<StoredPartnerAging>(db, "starost", key)) ?? EMPTY_AGING
+  await put(db, "starost", { kupci: current.kupci ?? [], dobavitelji: current.dobavitelji ?? [], [kind]: rows }, key)
+  db.close()
+}
+
 function openClient(company: string): Promise<IDBDatabase> {
-  return openDatabase(clientDatabaseName(company), 2, (db) => {
+  return openDatabase(clientDatabaseName(company), 3, (db) => {
     if (!db.objectStoreNames.contains("formule")) db.createObjectStore("formule")
     if (!db.objectStoreNames.contains("obdobja")) db.createObjectStore("obdobja", { keyPath: "id" })
     if (!db.objectStoreNames.contains("pdf")) db.createObjectStore("pdf")
     if (!db.objectStoreNames.contains("osnutek")) db.createObjectStore("osnutek")
     if (!db.objectStoreNames.contains("kontrola")) db.createObjectStore("kontrola")
+    if (!db.objectStoreNames.contains("starost")) db.createObjectStore("starost")
   })
 }
 
