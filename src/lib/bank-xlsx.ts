@@ -88,6 +88,7 @@ export function euroText(cents: number): string {
 export function patchSheetXml(xml: string, writes: BankCell[], sheet: string): string {
   let next = xml
   for (const write of writes) {
+    next = relocateSharedFormulaMaster(next, write.cell)
     const replaced = replaceCell(next, write.cell, (attrs) => {
       const cleaned = attrs.replace(/\s+t="[^"]*"/g, "")
       if (write.clear) return `<c r="${write.cell}"${cleaned}/>`
@@ -128,6 +129,52 @@ function replaceCell(xml: string, ref: string, build: (attrs: string) => string)
   const hit = open.exec(xml)
   if (!hit) return null
   return xml.slice(0, hit.index) + build(hit[1] ?? "") + xml.slice(hit.index + hit[0].length)
+}
+
+/**
+ * Skupna formula (na primer G9:G18 na listu 045) izgubi telo, če se glavna celica zamenja z zneskom.
+ * Glavo formule prestavimo na naslednjo vrstico, preden se celica prepiše.
+ */
+function relocateSharedFormulaMaster(xml: string, ref: string): string {
+  const cell = cellInnerOf(xml, ref)
+  if (!cell) return xml
+  const formula = /<f\b([^>]*)>([\s\S]*?)<\/f>/.exec(cell.inner)
+  if (!formula) return xml
+  const attrs = formula[1] ?? ""
+  if (!/\bt="shared"/.test(attrs)) return xml
+  const range = /\bref="([A-Z]+)(\d+):([A-Z]+)(\d+)"/.exec(attrs)
+  const si = /\bsi="(\d+)"/.exec(attrs)
+  if (!range?.[1] || !range[2] || !range[3] || !range[4] || !si?.[1]) return xml
+  const column = range[1]
+  const start = Number(range[2])
+  const endColumn = range[3]
+  const end = Number(range[4])
+  if (column !== endColumn || end <= start) return xml
+  const nextRow = start + 1
+  const nextRef = `${column}${nextRow}`
+  const shifted = (formula[2] ?? "").replace(
+    new RegExp(`(\\$?)([A-Z]+)(?!\\$)(${start})(?!\\d)`, "g"),
+    `$1$2${nextRow}`,
+  )
+  const nextAttrs = attrs.replace(/\bref="[^"]*"/, `ref="${nextRef}:${column}${end}"`)
+  const nextFormula = `<f${nextAttrs}>${shifted}</f>`
+  return replaceCell(xml, nextRef, (nextCellAttrs) => {
+    const inner = cellInnerOf(xml, nextRef)?.inner ?? ""
+    const replacedInner = /<f\b[^>]*\/>/.test(inner)
+      ? inner.replace(/<f\b[^>]*\/>/, nextFormula)
+      : /<f\b[^>]*>[\s\S]*?<\/f>/.test(inner)
+        ? inner.replace(/<f\b[^>]*>[\s\S]*?<\/f>/, nextFormula)
+        : `${nextFormula}${inner}`
+    return `<c r="${nextRef}"${nextCellAttrs}>${replacedInner}</c>`
+  }) ?? xml
+}
+
+function cellInnerOf(xml: string, ref: string): { inner: string } | null {
+  const escaped = ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const open = new RegExp(`<c r="${escaped}"([^>]*)>([\\s\\S]*?)</c>`)
+  const hit = open.exec(xml)
+  if (!hit || (hit[1] ?? "").endsWith("/")) return null
+  return { inner: hit[2] ?? "" }
 }
 
 async function dropCalcChain(zip: JSZip) {

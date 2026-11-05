@@ -54,6 +54,8 @@ import type { EkarticaReport } from "@/lib/ekartica"
 import { rollup, sheetWarnings } from "@/lib/compute"
 import { formatCents, splitPeriod } from "@/lib/format"
 import { parseAgingWorkbook, type AgingKind, type AgingParty } from "@/lib/partner-aging"
+import { readLoan045, writeLoan045 } from "@/lib/zavihek-045-store"
+import type { LoanAnalyticalLine } from "@/lib/zavihek-045"
 import { accountsForSearch, applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
 import { cn } from "@/lib/utils"
 
@@ -113,6 +115,8 @@ export function BilanceApp() {
   const [kupci, setKupci] = useState<AgingParty[] | null>(null)
   const [dobavitelji, setDobavitelji] = useState<AgingParty[] | null>(null)
   const [agingBusy, setAgingBusy] = useState<AgingKind | null>(null)
+  const [loans045, setLoans045] = useState<LoanAnalyticalLine[] | null>(null)
+  const [sheet045Busy, setSheet045Busy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
@@ -149,6 +153,9 @@ export function BilanceApp() {
   const ajpesInputRef = useRef<HTMLInputElement>(null)
   const kupciInputRef = useRef<HTMLInputElement>(null)
   const dobaviteljiInputRef = useRef<HTMLInputElement>(null)
+  const sheet045InputRef = useRef<HTMLInputElement>(null)
+  const sheet045Epoch = useRef(0)
+  const pasteSheet045Ref = useRef<(event: ClipboardEvent) => void>(() => undefined)
   const agingEpoch = useRef(0)
   const cardInputRef = useRef<HTMLInputElement>(null)
   const taxInputRef = useRef<HTMLInputElement>(null)
@@ -203,7 +210,19 @@ export function BilanceApp() {
         setDobavitelji(stored.dobavitelji.length ? stored.dobavitelji : null)
       })
       .catch(() => undefined)
+    void readLoan045(company, period)
+      .then((stored) => {
+        if (statementRef.current.company !== company || statementRef.current.period !== period) return
+        setLoans045(stored?.lines.length ? stored.lines : null)
+      })
+      .catch(() => undefined)
   }, [statement.company, statement.period])
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => pasteSheet045Ref.current(event)
+    window.addEventListener("paste", onPaste)
+    return () => window.removeEventListener("paste", onPaste)
+  }, [])
 
   function showView(next: View) {
     setView(next)
@@ -1424,6 +1443,94 @@ export function BilanceApp() {
     return `${who} so naloženi za to obdobje. Skupaj ${formatCents(rows.reduce((sum, row) => sum + row.stanje, 0))}.`
   }
 
+  function isSheet045Image(file: File): boolean {
+    const name = file.name.toLowerCase()
+    return (
+      file.type === "image/png" ||
+      file.type === "image/jpeg" ||
+      file.type === "image/webp" ||
+      name.endsWith(".png") ||
+      name.endsWith(".jpg") ||
+      name.endsWith(".jpeg") ||
+      name.endsWith(".webp")
+    )
+  }
+
+  function sheet045File(file: File): File {
+    if (file.type === "image/png" || file.type === "image/jpeg" || file.type === "image/webp") return file
+    const name = file.name.toLowerCase()
+    const type = name.endsWith(".webp")
+      ? "image/webp"
+      : name.endsWith(".jpg") || name.endsWith(".jpeg")
+        ? "image/jpeg"
+        : "image/png"
+    return new File([file], file.name || "zavihek-045.png", { type })
+  }
+
+  async function loadSheet045(file: File) {
+    const current = statementRef.current
+    const company = current.company
+    const period = current.period
+    if (!company || !period.trim()) {
+      setError("Najprej odprite bilanco.")
+      return
+    }
+    if (!isSheet045Image(file)) {
+      setError("Posnetek naj bo png, jpg ali webp.")
+      return
+    }
+    const image = sheet045File(file)
+    sheet045Epoch.current += 1
+    const epoch = sheet045Epoch.current
+    setSheet045Busy(true)
+    setError(null)
+    try {
+      const body = new FormData()
+      body.set("file", image)
+      const response = await fetch("/api/zavihek-045", { method: "POST", body })
+      const data = (await response.json().catch(() => null)) as { lines?: LoanAnalyticalLine[]; error?: string } | null
+      if (!response.ok || !data?.lines?.length) {
+        throw new Error(data?.error ?? "Na posnetku ni analitičnih vrstic.")
+      }
+      await writeLoan045(company, period, data.lines, {
+        name: image.name || "zavihek-045.png",
+        type: image.type || "image/png",
+        bytes: await image.arrayBuffer(),
+      })
+      if (epoch !== sheet045Epoch.current) return
+      if (statementRef.current.company !== company || statementRef.current.period !== period) return
+      setLoans045(data.lines)
+    } catch (caught) {
+      if (epoch === sheet045Epoch.current) {
+        setError(caught instanceof Error ? caught.message : "Tabele na posnetku ni bilo mogoče prebrati.")
+      }
+    } finally {
+      if (epoch === sheet045Epoch.current) setSheet045Busy(false)
+    }
+  }
+
+  function pasteSheet045(event: ClipboardEvent) {
+    const target = event.target
+    if (target instanceof HTMLElement) {
+      const tag = target.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return
+    }
+    const clipboard = event.clipboardData
+    if (!clipboard) return
+    const files = [...clipboard.files]
+    for (const item of clipboard.items) {
+      if (item.kind === "file") {
+        const file = item.getAsFile()
+        if (file) files.push(file)
+      }
+    }
+    const image = files.find((file) => isSheet045Image(file))
+    if (!image) return
+    event.preventDefault()
+    void loadSheet045(image)
+  }
+  pasteSheet045Ref.current = pasteSheet045
+
   async function downloadDisclosures() {
     if (blank) {
       setError("Najprej odprite bilanco.")
@@ -1445,6 +1552,7 @@ export function BilanceApp() {
           statement: current,
           ...(kupci?.length ? { kupci } : {}),
           ...(dobavitelji?.length ? { dobavitelji } : {}),
+          ...(loans045?.length ? { posojila045: loans045 } : {}),
         }),
       })
       if (!response.ok) {
@@ -1617,6 +1725,15 @@ export function BilanceApp() {
         <Button type="button" onClick={() => void downloadDisclosures()} disabled={exporting !== null || blank}>
           <FileSpreadsheet />
           {exporting === "razkritja" ? "Pripravljam razkritja…" : "Razkritja"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => sheet045InputRef.current?.click()}
+          disabled={exporting !== null || blank || sheet045Busy}
+        >
+          <FileUp />
+          {sheet045Busy ? "Berem zavihek 045…" : "Naloži zavihek 045"}
         </Button>
         {adremaReady ? (
           <>
@@ -1949,7 +2066,10 @@ export function BilanceApp() {
                   {addingPeriod ? "Shranjujem to obdobje…" : "Dodaj bilanco za drugo obdobje"}
                 </Button>
               ) : null}
-              <div className="basis-full min-w-0 rounded-lg border border-border p-3">
+              <div
+                className="basis-full min-w-0 rounded-lg border border-border p-3"
+                onPaste={(event) => pasteSheet045(event.nativeEvent)}
+              >
                 <fieldset>
                   <legend className="text-xs font-medium tracking-[0.2em] text-gold uppercase">Banka</legend>
                   <div className="mt-2 space-y-1">
@@ -1980,6 +2100,15 @@ export function BilanceApp() {
                   <Button
                     type="button"
                     variant="outline"
+                    onClick={() => sheet045InputRef.current?.click()}
+                    disabled={exporting !== null || busy || ajpesBusy || blank || sheet045Busy}
+                  >
+                    <FileUp />
+                    {sheet045Busy ? "Berem zavihek 045…" : "Naloži zavihek 045"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
                     onClick={() => kupciInputRef.current?.click()}
                     disabled={exporting !== null || busy || ajpesBusy || blank || agingBusy !== null}
                   >
@@ -1995,6 +2124,17 @@ export function BilanceApp() {
                     <FileUp />
                     {agingBusy === "dobavitelji" ? "Berem dobavitelje…" : "Naloži dobavitelje"}
                   </Button>
+                  <input
+                    ref={sheet045InputRef}
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) void loadSheet045(file)
+                      event.target.value = ""
+                    }}
+                  />
                   <input
                     ref={kupciInputRef}
                     type="file"
@@ -2027,8 +2167,14 @@ export function BilanceApp() {
                     <div className="basis-full text-sm text-muted-foreground">
                       <p>
                         Razkritja se napolnijo iz odprte bilance {statement.period}. Naloženi kupci in dobavitelji se
-                        vpišejo v razkritja te stranke za to obdobje.
+                        vpišejo v razkritja te stranke za to obdobje. Naloži zavihek 045 sprejme prilepljen ali naložen
+                        posnetek. Vrstice zavihka 045 ostanejo pri tej stranki za to obdobje.
                       </p>
+                      {loans045?.length ? (
+                        <p className="mt-1 text-navy">
+                          Zavihek 045: {loans045.length} analitičnih vrstic za to obdobje.
+                        </p>
+                      ) : null}
                       {agingNote("kupci", kupci) ? <p className="mt-1 text-navy">{agingNote("kupci", kupci)}</p> : null}
                       {agingNote("dobavitelji", dobavitelji) ? (
                         <p className="mt-1 text-navy">{agingNote("dobavitelji", dobavitelji)}</p>
