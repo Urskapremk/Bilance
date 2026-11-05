@@ -87,7 +87,7 @@ function openStore(database: string): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "key" })
     }
     request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error("Posnetka zavihka 045 ni bilo mogoče odpreti."))
+    request.onerror = () => reject(request.error ?? new Error("Posnetka ni bilo mogoče odpreti."))
   })
 }
 
@@ -108,6 +108,6 @@ function run<T>(
     const transaction = db.transaction(STORE, mode)
     const request = action(transaction.objectStore(STORE))
     request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error("Posnetka zavihka 045 ni bilo mogoče prebrati."))
+    request.onerror = () => reject(request.error ?? new Error("Posnetka ni bilo mogoče prebrati."))
   })
 }

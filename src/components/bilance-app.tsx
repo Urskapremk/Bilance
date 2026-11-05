@@ -2,7 +2,7 @@
 
 import { Archive, ArrowLeft, FileDown, FileSpreadsheet, FileText, FileUp, Printer, Receipt, RefreshCw, Save, UserPlus } from "lucide-react"
 import Image from "next/image"
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react"
+import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type FormEvent, type MouseEvent } from "react"
 
 import { FormulaDialog } from "@/components/formula-dialog"
 import { PdfPreview } from "@/components/pdf-preview"
@@ -53,7 +53,7 @@ import type { DavcniObracun } from "@/lib/davcni-obracun"
 import type { EkarticaReport } from "@/lib/ekartica"
 import { rollup, sheetWarnings } from "@/lib/compute"
 import { formatCents, splitPeriod } from "@/lib/format"
-import { parseAgingWorkbook, type AgingKind, type AgingParty } from "@/lib/partner-aging"
+import { type AgingKind, type AgingParty } from "@/lib/partner-aging"
 import { readLoan045, readLoan076, writeLoan045, writeLoan076 } from "@/lib/zavihek-045-store"
 import type { LoanAnalyticalLine } from "@/lib/zavihek-045"
 import { accountsForSearch, applyCurrentAmount, applyEkartica, applyNormirani, type Statement } from "@/lib/trial"
@@ -68,6 +68,8 @@ type ParsedTrial = {
 }
 
 type View = "bilanca" | "izkaz"
+
+const SCREENSHOT_ACCEPT = ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
 
 type Workspace = {
   statement: Statement
@@ -123,6 +125,8 @@ export function BilanceApp() {
   const [dragOver, setDragOver] = useState(false)
   const [customerOver, setCustomerOver] = useState(false)
   const [supplierOver, setSupplierOver] = useState(false)
+  const [loan045Over, setLoan045Over] = useState(false)
+  const [loan076Over, setLoan076Over] = useState(false)
   const [phase, setPhase] = useState<"primer" | "osnutek" | "arhiv">("primer")
   const [saveAsk, setSaveAsk] = useState(false)
   const [savingArchive, setSavingArchive] = useState(false)
@@ -161,8 +165,6 @@ export function BilanceApp() {
   const sheet076InputRef = useRef<HTMLInputElement>(null)
   const sheet045Epoch = useRef(0)
   const sheet076Epoch = useRef(0)
-  const loanPasteKind = useRef<"045" | "076">("045")
-  const pasteSheet045Ref = useRef<(event: ClipboardEvent) => void>(() => undefined)
   const agingEpoch = useRef(0)
   const cardInputRef = useRef<HTMLInputElement>(null)
   const taxInputRef = useRef<HTMLInputElement>(null)
@@ -230,12 +232,6 @@ export function BilanceApp() {
       })
       .catch(() => undefined)
   }, [statement.company, statement.period])
-
-  useEffect(() => {
-    const onPaste = (event: ClipboardEvent) => pasteSheet045Ref.current(event)
-    window.addEventListener("paste", onPaste)
-    return () => window.removeEventListener("paste", onPaste)
-  }, [])
 
   function showView(next: View) {
     setView(next)
@@ -1451,7 +1447,7 @@ export function BilanceApp() {
   }
 
   async function readAgingFile(file: File, kind: AgingKind) {
-    if (!isAgingImage(file)) return parseAgingWorkbook(await file.arrayBuffer(), kind)
+    if (!isAgingImage(file)) throw new Error("Prilepite posnetek zaslona (png, jpg ali webp).")
     const body = new FormData()
     body.set("file", file)
     body.set("kind", kind)
@@ -1463,7 +1459,7 @@ export function BilanceApp() {
     return data.rows
   }
 
-  function supplierFile(data: DataTransfer | null): File | null {
+  function pastedImage(data: DataTransfer | null, fallbackName: string): File | null {
     if (!data) return null
     const files = [...data.files]
     for (const item of data.items) {
@@ -1472,12 +1468,51 @@ export function BilanceApp() {
       if (!file) continue
       if (!file.type && item.type.startsWith("image/")) {
         const ext = item.type === "image/jpeg" ? "jpg" : item.type === "image/webp" ? "webp" : "png"
-        files.push(new File([file], file.name || `dobavitelji.${ext}`, { type: item.type }))
+        files.push(new File([file], file.name || `${fallbackName}.${ext}`, { type: item.type }))
         continue
       }
       files.push(file)
     }
-    return files.find((file) => isAgingImage(file) || /\.xlsx$/i.test(file.name)) ?? null
+    return files.find((file) => isAgingImage(file)) ?? null
+  }
+
+  function clipboardHasFile(data: DataTransfer | null): boolean {
+    if (!data) return false
+    if (data.files.length) return true
+    return [...data.items].some((item) => item.kind === "file")
+  }
+
+  function pasteAgingImage(event: ReactClipboardEvent<HTMLDivElement>, kind: AgingKind) {
+    const file = pastedImage(event.clipboardData, kind)
+    if (!file) {
+      if (clipboardHasFile(event.clipboardData)) {
+        event.preventDefault()
+        event.stopPropagation()
+        setError("Prilepite posnetek zaslona (png, jpg ali webp).")
+      }
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    void loadAging(kind, file)
+  }
+
+  function dropAgingImage(data: DataTransfer, kind: AgingKind) {
+    const file = pastedImage(data, kind)
+    if (file) {
+      void loadAging(kind, file)
+      return
+    }
+    if (data.files.length) setError("Prilepite posnetek zaslona (png, jpg ali webp).")
+  }
+
+  function dropLoanImage(data: DataTransfer, kind: "045" | "076") {
+    const file = pastedImage(data, kind === "076" ? "obveznosti" : "posojila")
+    if (file) {
+      void loadLoanShot(kind, file)
+      return
+    }
+    if (data.files.length) setError("Prilepite posnetek zaslona (png, jpg ali webp).")
   }
 
   function isAgingImage(file: File): boolean {
@@ -1574,41 +1609,26 @@ export function BilanceApp() {
   }
 
   function loadSheet045(file: File) {
-    loanPasteKind.current = "045"
     return loadLoanShot("045", file)
   }
 
-  function pasteLoanImage(event: ClipboardEvent, kind: "045" | "076") {
-    const clipboard = event.clipboardData
-    if (!clipboard) return
-    const files = [...clipboard.files]
-    for (const item of clipboard.items) {
-      if (item.kind === "file") {
-        const file = item.getAsFile()
-        if (file) files.push(file)
+  function pasteLoanImage(
+    event: { clipboardData: DataTransfer | null; preventDefault: () => void; stopPropagation: () => void },
+    kind: "045" | "076",
+  ) {
+    const image = pastedImage(event.clipboardData, kind === "076" ? "obveznosti" : "posojila")
+    if (!image) {
+      if (clipboardHasFile(event.clipboardData)) {
+        event.preventDefault()
+        event.stopPropagation()
+        setError("Prilepite posnetek zaslona (png, jpg ali webp).")
       }
+      return
     }
-    const image = files.find((file) => isSheet045Image(file))
-    if (!image) return
     event.preventDefault()
     event.stopPropagation()
-    loanPasteKind.current = kind
     void loadLoanShot(kind, image)
   }
-
-  function pasteSheet045(event: ClipboardEvent) {
-    if (event.defaultPrevented) return
-    const target = event.target
-    if (target instanceof HTMLElement) {
-      if (target.closest("[data-kupci-paste], [data-dobavitelji-paste]")) return
-      if (target.closest("[data-obveznosti-paste]")) return
-      if (target.closest("[data-posojila-paste]")) return
-      const tag = target.tagName
-      if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return
-    }
-    pasteLoanImage(event, loanPasteKind.current)
-  }
-  pasteSheet045Ref.current = pasteSheet045
 
   async function downloadDisclosures() {
     if (blank) {
@@ -1809,10 +1829,7 @@ export function BilanceApp() {
         <Button
           type="button"
           variant="outline"
-          onClick={() => {
-            loanPasteKind.current = "076"
-            sheet076InputRef.current?.click()
-          }}
+          onClick={() => sheet076InputRef.current?.click()}
           disabled={exporting !== null || blank || sheet076Busy}
         >
           <FileUp />
@@ -1821,10 +1838,7 @@ export function BilanceApp() {
         <Button
           type="button"
           variant="outline"
-          onClick={() => {
-            loanPasteKind.current = "045"
-            sheet045InputRef.current?.click()
-          }}
+          onClick={() => sheet045InputRef.current?.click()}
           disabled={exporting !== null || blank || sheet045Busy}
         >
           <FileUp />
@@ -2161,10 +2175,7 @@ export function BilanceApp() {
                   {addingPeriod ? "Shranjujem to obdobje…" : "Dodaj bilanco za drugo obdobje"}
                 </Button>
               ) : null}
-              <div
-                className="basis-full min-w-0 rounded-lg border border-border p-3"
-                onPaste={(event) => pasteSheet045(event.nativeEvent)}
-              >
+              <div className="basis-full min-w-0 rounded-lg border border-border p-3">
                 <fieldset>
                   <legend className="text-xs font-medium tracking-[0.2em] text-gold uppercase">Banka</legend>
                   <div className="mt-2 space-y-1">
@@ -2192,66 +2203,21 @@ export function BilanceApp() {
                     <FileSpreadsheet />
                     {exporting === "razkritja" ? "Pripravljam razkritja…" : "Razkritja"}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      loanPasteKind.current = "076"
-                      sheet076InputRef.current?.click()
-                    }}
-                    disabled={exporting !== null || busy || ajpesBusy || blank || sheet076Busy}
-                  >
-                    <FileUp />
-                    {sheet076Busy ? "Berem dolgoročne finančne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      loanPasteKind.current = "045"
-                      sheet045InputRef.current?.click()
-                    }}
-                    disabled={exporting !== null || busy || ajpesBusy || blank || sheet045Busy}
-                  >
-                    <FileUp />
-                    {sheet045Busy ? "Berem kratkoročna dana posojila…" : "Naloži kratkoročna dana posojila"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => kupciInputRef.current?.click()}
-                    disabled={exporting !== null || busy || ajpesBusy || blank || agingBusy !== null}
-                  >
-                    <FileUp />
-                    {agingBusy === "kupci" ? "Berem kupce…" : "Naloži kupce"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => dobaviteljiInputRef.current?.click()}
-                    disabled={exporting !== null || busy || ajpesBusy || blank || agingBusy !== null}
-                  >
-                    <FileUp />
-                    {agingBusy === "dobavitelji" ? "Berem dobavitelje…" : "Naloži dobavitelje"}
-                  </Button>
                   <input
                     ref={sheet076InputRef}
                     type="file"
-                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                    accept={SCREENSHOT_ACCEPT}
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0]
-                      if (file) {
-                        loanPasteKind.current = "076"
-                        void loadLoanShot("076", file)
-                      }
+                      if (file) void loadLoanShot("076", file)
                       event.target.value = ""
                     }}
                   />
                   <input
                     ref={sheet045InputRef}
                     type="file"
-                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                    accept={SCREENSHOT_ACCEPT}
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0]
@@ -2262,7 +2228,7 @@ export function BilanceApp() {
                   <input
                     ref={kupciInputRef}
                     type="file"
-                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept={SCREENSHOT_ACCEPT}
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0]
@@ -2273,7 +2239,7 @@ export function BilanceApp() {
                   <input
                     ref={dobaviteljiInputRef}
                     type="file"
-                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept={SCREENSHOT_ACCEPT}
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0]
@@ -2288,23 +2254,17 @@ export function BilanceApp() {
                         : "Najprej odprite bilanco."}
                     </p>
                   ) : (
-                    <div className="basis-full text-sm text-muted-foreground">
+                    <div className="basis-full space-y-2 text-sm text-muted-foreground">
                       <div
                         data-kupci-paste=""
                         tabIndex={0}
                         role="group"
-                        aria-label="Posnetek zaslona kupcev"
+                        aria-label="Kupci"
                         className={cn(
                           "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
                           customerOver ? "border-gold bg-gold/10 text-navy" : "border-border",
                         )}
-                        onPaste={(event) => {
-                          const file = supplierFile(event.clipboardData)
-                          if (!file || !isAgingImage(file)) return
-                          event.preventDefault()
-                          event.stopPropagation()
-                          void loadAging("kupci", file)
-                        }}
+                        onPaste={(event) => pasteAgingImage(event, "kupci")}
                         onDragOver={(event) => {
                           event.preventDefault()
                           event.stopPropagation()
@@ -2315,29 +2275,36 @@ export function BilanceApp() {
                           event.preventDefault()
                           event.stopPropagation()
                           setCustomerOver(false)
-                          const file = supplierFile(event.dataTransfer) ?? event.dataTransfer.files[0]
-                          if (file && isAgingImage(file)) void loadAging("kupci", file)
+                          dropAgingImage(event.dataTransfer, "kupci")
                         }}
                       >
-                        Sem prilepite posnetek zaslona kupcev (Ctrl+V) ali ga spustite sem. Lahko ga tudi izberete z
-                        Naloži kupce. Razkritja vpiše vrstice med kratkoročne terjatve do kupcev.
+                        <p className="font-medium text-navy">Kupci</p>
+                        <p>
+                          Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
+                          kratkoročne terjatve do kupcev.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => kupciInputRef.current?.click()}
+                          disabled={exporting !== null || busy || ajpesBusy || agingBusy !== null}
+                        >
+                          <FileUp />
+                          {agingBusy === "kupci" ? "Berem kupce…" : "Naloži kupce"}
+                        </Button>
                       </div>
                       <div
                         data-dobavitelji-paste=""
                         tabIndex={0}
                         role="group"
-                        aria-label="Posnetek zaslona dobaviteljev"
+                        aria-label="Dobavitelji"
                         className={cn(
                           "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
                           supplierOver ? "border-gold bg-gold/10 text-navy" : "border-border",
                         )}
-                        onPaste={(event) => {
-                          const file = supplierFile(event.clipboardData)
-                          if (!file) return
-                          event.preventDefault()
-                          event.stopPropagation()
-                          void loadAging("dobavitelji", file)
-                        }}
+                        onPaste={(event) => pasteAgingImage(event, "dobavitelji")}
                         onDragOver={(event) => {
                           event.preventDefault()
                           event.stopPropagation()
@@ -2348,62 +2315,109 @@ export function BilanceApp() {
                           event.preventDefault()
                           event.stopPropagation()
                           setSupplierOver(false)
-                          const file = supplierFile(event.dataTransfer) ?? event.dataTransfer.files[0]
-                          if (file) void loadAging("dobavitelji", file)
+                          dropAgingImage(event.dataTransfer, "dobavitelji")
                         }}
                       >
-                        Sem prilepite posnetek zaslona dobaviteljev (Ctrl+V) ali ga spustite sem. Lahko ga tudi
-                        izberete z Naloži dobavitelje. Razkritja vpiše vrstice med dobavitelje.
-                      </div>
-                      <div
-                        data-obveznosti-paste=""
-                        tabIndex={0}
-                        role="group"
-                        aria-label="Posnetek dolgoročnih finančnih obveznosti"
-                        className="mt-2 rounded-md border border-dashed border-border px-3 py-2 outline-none focus-visible:border-gold"
-                        onPaste={(event) => pasteLoanImage(event.nativeEvent, "076")}
-                        onDragOver={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                        }}
-                        onDrop={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          const file = event.dataTransfer.files[0]
-                          if (file) void loadLoanShot("076", file)
-                        }}
-                      >
-                        Sem prilepite posnetek dolgoročnih finančnih obveznosti (Ctrl+V, png, jpg ali webp) ali ga
-                        spustite sem. Lahko ga tudi izberete z gumbom Naloži dolgoročne finančne obveznosti. Razkritja
-                        vpiše vrstice med dolgoročne finančne obveznosti.
+                        <p className="font-medium text-navy">Dobavitelji</p>
+                        <p>
+                          Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
+                          dobavitelje.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => dobaviteljiInputRef.current?.click()}
+                          disabled={exporting !== null || busy || ajpesBusy || agingBusy !== null}
+                        >
+                          <FileUp />
+                          {agingBusy === "dobavitelji" ? "Berem dobavitelje…" : "Naloži dobavitelje"}
+                        </Button>
                       </div>
                       <div
                         data-posojila-paste=""
                         tabIndex={0}
                         role="group"
-                        aria-label="Posnetek kratkoročnih danih posojil"
-                        className="mt-2 rounded-md border border-dashed border-border px-3 py-2 outline-none focus-visible:border-gold"
-                        onPaste={(event) => pasteLoanImage(event.nativeEvent, "045")}
+                        aria-label="Kratkoročna dana posojila"
+                        className={cn(
+                          "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
+                          loan045Over ? "border-gold bg-gold/10 text-navy" : "border-border",
+                        )}
+                        onPaste={(event) => pasteLoanImage(event, "045")}
                         onDragOver={(event) => {
                           event.preventDefault()
                           event.stopPropagation()
+                          setLoan045Over(true)
                         }}
+                        onDragLeave={() => setLoan045Over(false)}
                         onDrop={(event) => {
                           event.preventDefault()
                           event.stopPropagation()
-                          const file = event.dataTransfer.files[0]
-                          if (file) void loadLoanShot("045", file)
+                          setLoan045Over(false)
+                          dropLoanImage(event.dataTransfer, "045")
                         }}
                       >
-                        Sem prilepite posnetek kratkoročnih danih posojil (Ctrl+V, png, jpg ali webp) ali ga spustite
-                        sem. Lahko ga tudi izberete z gumbom Naloži kratkoročna dana posojila. Razkritja vpiše vrstice
-                        med kratkoročna dana posojila.
+                        <p className="font-medium text-navy">Kratkoročna dana posojila</p>
+                        <p>
+                          Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
+                          kratkoročna dana posojila.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => sheet045InputRef.current?.click()}
+                          disabled={exporting !== null || busy || ajpesBusy || sheet045Busy}
+                        >
+                          <FileUp />
+                          {sheet045Busy ? "Berem kratkoročna dana posojila…" : "Naloži kratkoročna dana posojila"}
+                        </Button>
                       </div>
-                      <p className="mt-2">
-                        Razkritja se napolnijo iz odprte bilance {statement.period}. Kupci se dodajo kot posnetek
-                        zaslona v prvo polje, med kratkoročne terjatve do kupcev. Posnetek zaslona dobaviteljev gre
-                        med dobavitelje. Dolgoročne finančne obveznosti in kratkoročna dana posojila se vpišejo
-                        posebej. Vrstice ostanejo pri tej stranki za to obdobje in se vpišejo v datoteko banke.
+                      <div
+                        data-obveznosti-paste=""
+                        tabIndex={0}
+                        role="group"
+                        aria-label="Dolgoročne finančne obveznosti"
+                        className={cn(
+                          "rounded-md border border-dashed px-3 py-2 outline-none focus-visible:border-gold",
+                          loan076Over ? "border-gold bg-gold/10 text-navy" : "border-border",
+                        )}
+                        onPaste={(event) => pasteLoanImage(event, "076")}
+                        onDragOver={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setLoan076Over(true)
+                        }}
+                        onDragLeave={() => setLoan076Over(false)}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setLoan076Over(false)
+                          dropLoanImage(event.dataTransfer, "076")
+                        }}
+                      >
+                        <p className="font-medium text-navy">Dolgoročne finančne obveznosti</p>
+                        <p>
+                          Prilepite posnetek zaslona (Ctrl+V) ali ga spustite sem. Razkritja vpiše vrstice med
+                          dolgoročne finančne obveznosti.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => sheet076InputRef.current?.click()}
+                          disabled={exporting !== null || busy || ajpesBusy || sheet076Busy}
+                        >
+                          <FileUp />
+                          {sheet076Busy ? "Berem dolgoročne finančne obveznosti…" : "Naloži dolgoročne finančne obveznosti"}
+                        </Button>
+                      </div>
+                      <p>
+                        Razkritja se napolnijo iz odprte bilance {statement.period}. V vsako polje prilepite posnetek
+                        zaslona. Vrstice ostanejo pri tej stranki za to obdobje. Prazne celice ostanejo prazne.
                       </p>
                       {loans076?.length ? (
                         <p className="mt-1 text-navy">

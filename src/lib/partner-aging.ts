@@ -80,9 +80,9 @@ export async function parseAgingWorkbook(data: ArrayBuffer | Uint8Array, expecte
     sheets = await workbookGrids(data)
   } catch (error) {
     if (error instanceof AgingTableError) throw error
-    throw new AgingTableError("Datoteka naj bo Excel (.xlsx).")
+    throw new AgingTableError("Prilepite posnetek zaslona (png, jpg ali webp).")
   }
-  if (!sheets.length) throw new AgingTableError("Datoteka naj bo Excel (.xlsx).")
+  if (!sheets.length) throw new AgingTableError("Prilepite posnetek zaslona (png, jpg ali webp).")
   let found: AgingParty[] | null = null
   let failure: AgingTableError | null = null
   for (const grid of sheets) {
@@ -365,7 +365,7 @@ async function workbookGrids(data: ArrayBuffer | Uint8Array): Promise<string[][]
   const zip = await JSZip.loadAsync(data)
   const workbook = await zip.file("xl/workbook.xml")?.async("string")
   const rels = await zip.file("xl/_rels/workbook.xml.rels")?.async("string")
-  if (!workbook || !rels) throw new AgingTableError("Datoteka naj bo Excel (.xlsx).")
+  if (!workbook || !rels) throw new AgingTableError("Prilepite posnetek zaslona (png, jpg ali webp).")
   const targets = new Map<string, string>()
   for (const tag of rels.matchAll(/<Relationship\b[^>]*>/g)) {
     const id = attr(tag[0], "Id")

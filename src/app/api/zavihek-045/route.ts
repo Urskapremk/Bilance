@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   const form = await request.formData().catch(() => null)
   const file = form?.get("file")
   if (!(file instanceof File)) {
-    return Response.json({ error: "Prilepite ali naložite posnetek zavihka 045." }, { status: 400 })
+    return Response.json({ error: "Prilepite posnetek zaslona (png, jpg ali webp)." }, { status: 400 })
   }
   if (!TYPES.has(file.type)) {
     return Response.json({ error: "Posnetek naj bo png, jpg ali webp." }, { status: 400 })
